@@ -22,10 +22,14 @@ async function initDatabase() {
       rent_amount NUMERIC DEFAULT 0
     );
   `);
+
+  // NEW: Add a column for maintenance fees if it doesn't exist
+  await pool.query(`
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS maintenance_amount NUMERIC DEFAULT 0;
+  `);
 }
 initDatabase().catch(err => console.error("Database setup failed:", err));
 
-// Global Header Style for HTML templates to keep fonts and layouts uniform
 const HTML_HEAD = `
   <head>
     <meta charset="UTF-8">
@@ -38,6 +42,8 @@ const HTML_HEAD = `
       label { font-weight: 600; font-size: 14px; color: #475569; display: block; margin-bottom: 6px; }
       input { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; margin-bottom: 16px; font-size: 15px; transition: border 0.2s; }
       input:focus { outline: none; border-color: #2563eb; }
+      .form-grid { display: flex; gap: 16px; }
+      .form-grid > div { flex: 1; }
       .form-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 24px; border-radius: 8px; margin-bottom: 25px; }
       .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; text-align: center; transition: all 0.2s; }
       .btn-primary { background: #2563eb; color: white; }
@@ -66,7 +72,7 @@ const HTML_HEAD = `
   </head>
 `;
 
-// 1. Home Page (Dashboard view with nice form layout)
+// 1. Home Page Dashboard
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -85,8 +91,16 @@ app.get('/', (req, res) => {
               <label>Unit Number</label>
               <input type="text" name="unitNumber" placeholder="e.g. Apt 104" required>
               
-              <label>Monthly Rent Amount ($)</label>
-              <input type="number" name="rentAmount" placeholder="e.g. 1200" required>
+              <div class="form-grid">
+                <div>
+                  <label>Monthly Rent ($)</label>
+                  <input type="number" name="rentAmount" placeholder="e.g. 1200" required>
+                </div>
+                <div>
+                  <label>Maintenance Fee ($)</label>
+                  <input type="number" name="maintenanceAmount" placeholder="e.g. 150" required>
+                </div>
+              </div>
               
               <button type="submit" class="btn btn-primary" style="width: 100%;">Save Tenant Record</button>
             </form>
@@ -101,13 +115,13 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 2. Action Route: Create Tenant
+// 2. Action Route: Create Tenant with Maintenance Fees
 app.post('/add-tenant', async (req, res) => {
   try {
-    const { tenantName, unitNumber, rentAmount } = req.body;
+    const { tenantName, unitNumber, rentAmount, maintenanceAmount } = req.body;
     await pool.query(
-      'INSERT INTO tenants (name, unit, rent_amount, rent_paid) VALUES ($1, $2, $3, $4)',
-      [tenantName, unitNumber, rentAmount, false]
+      'INSERT INTO tenants (name, unit, rent_amount, maintenance_amount, rent_paid) VALUES ($1, $2, $3, $4, $5)',
+      [tenantName, unitNumber, rentAmount, maintenanceAmount || 0, false]
     );
     res.redirect('/tenants');
   } catch (err) {
@@ -140,11 +154,12 @@ app.post('/delete-tenant/:id', async (req, res) => {
   }
 });
 
-// 5. Tenants Page (The beautiful structured portal)
+// 5. Financial Overview & Records
 app.get('/tenants', async (req, res) => {
   try {
-    const paidSumResult = await pool.query("SELECT SUM(rent_amount) FROM tenants WHERE rent_paid = true");
-    const unpaidSumResult = await pool.query("SELECT SUM(rent_amount) FROM tenants WHERE rent_paid = false");
+    // NEW SQL MATH: Add rent_amount + maintenance_amount together before taking the sum
+    const paidSumResult = await pool.query("SELECT SUM(rent_amount + maintenance_amount) FROM tenants WHERE rent_paid = true");
+    const unpaidSumResult = await pool.query("SELECT SUM(rent_amount + maintenance_amount) FROM tenants WHERE rent_paid = false");
 
     const totalCollected = Number(paidSumResult.rows[0].sum || 0);
     const totalOutstanding = Number(unpaidSumResult.rows[0].sum || 0);
@@ -154,11 +169,15 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     tenantsFromDb.forEach(tenant => {
+      const baseRent = Number(tenant.rent_amount || 0);
+      const maintenance = Number(tenant.maintenance_amount || 0);
+      const totalDue = baseRent + maintenance;
+
       const rentButtonOrStatus = tenant.rent_paid 
         ? `<span class="badge badge-paid">🟩 Paid</span>` 
         : `
           <form action="/toggle-rent/${tenant.id}" method="POST" style="margin: 0;">
-            <button type="submit" class="btn btn-success">Collect Rent</button>
+            <button type="submit" class="btn btn-success">Collect Total</button>
           </form>
         `;
 
@@ -172,7 +191,14 @@ app.get('/tenants', async (req, res) => {
         <li class="tenant-item">
           <div class="tenant-info">
             <strong>👤 ${tenant.name}</strong>
-            <div>🏠 Unit: ${tenant.unit} &bull; Rent: $${Number(tenant.rent_amount).toLocaleString()}/mo</div>
+            <div>
+              🏠 Unit: ${tenant.unit} &bull; 
+              Rent: $${baseRent.toLocaleString()} &bull; 
+              Maint: $${maintenance.toLocaleString()}
+            </div>
+            <div style="font-weight: 600; color: #1e293b; font-size: 13px; margin-top: 4px;">
+              Total Due: $${totalDue.toLocaleString()}
+            </div>
           </div>
           <div class="actions">
             ${rentButtonOrStatus}
@@ -188,15 +214,15 @@ app.get('/tenants', async (req, res) => {
         ${HTML_HEAD}
         <body>
           <div class="container">
-            <h1>Financial Overview</h1>
+            <h1>Financial Overview (Rent + Maintenance)</h1>
             
             <div class="flex-stats">
               <div class="stat-card stat-card-paid">
-                <small>Total Collected</small>
+                <small>Total Revenue Collected</small>
                 <h2>$${totalCollected.toLocaleString()}</h2>
               </div>
               <div class="stat-card stat-card-unpaid">
-                <small>Outstanding Balance</small>
+                <small>Total Outstanding Balance</small>
                 <h2>$${totalOutstanding.toLocaleString()}</h2>
               </div>
             </div>

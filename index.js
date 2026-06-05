@@ -61,18 +61,11 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// 3. New Action Route: Toggles Rent Status to Paid
+// 3. Action Route: Mark as Paid
 app.post('/toggle-rent/:id', async (req, res) => {
   try {
     const tenantId = req.params.id;
-
-    // Run an SQL command to flip rent_paid to true for this specific tenant ID
-    await pool.query(
-      'UPDATE tenants SET rent_paid = true WHERE id = $1',
-      [tenantId]
-    );
-
-    // Redirect straight back to the list to see the update live!
+    await pool.query('UPDATE tenants SET rent_paid = true WHERE id = $1', [tenantId]);
     res.redirect('/tenants');
   } catch (err) {
     console.error(err);
@@ -80,7 +73,23 @@ app.post('/toggle-rent/:id', async (req, res) => {
   }
 });
 
-// 4. Tenants Page (with dynamic buttons)
+// 4. NEW Action Route: Deletes a Tenant completely from the database
+app.post('/delete-tenant/:id', async (req, res) => {
+  try {
+    const tenantId = req.params.id;
+
+    // Run the SQL command to delete this specific row
+    await pool.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+
+    // Go straight back to the list to see them gone!
+    res.redirect('/tenants');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error deleting tenant.");
+  }
+});
+
+// 5. Tenants Page (With Mark Paid and Delete Buttons)
 app.get('/tenants', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM tenants ORDER BY id DESC');
@@ -88,24 +97,33 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     tenantsFromDb.forEach(tenant => {
-      // If rent is not paid, show a button. If it is paid, show text.
       const rentButtonOrStatus = tenant.rent_paid 
-        ? `<span style="color: green; font-weight: bold;">🟩 Paid</span>` 
+        ? `<span style="color: green; font-weight: bold; margin-right: 15px;">🟩 Paid</span>` 
         : `
-          <form action="/toggle-rent/${tenant.id}" method="POST" style="display:inline; margin-left: 10px;">
+          <form action="/toggle-rent/${tenant.id}" method="POST" style="display:inline; margin-right: 15px;">
             <button type="submit" style="background: #e67e22; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
               Mark as Paid
             </button>
           </form>
         `;
 
+      // New red delete button form
+      const deleteButton = `
+        <form action="/delete-tenant/${tenant.id}" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure this tenant moved out?');">
+          <button type="submit" style="background: #c0392b; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+            🗑️ Delete
+          </button>
+        </form>
+      `;
+
       tenantRows += `
-        <li style="padding: 15px; border-bottom: 1px solid #ddd; font-family: sans-serif; list-style: none; display: flex; justify-content: space-between; max-width: 500px;">
+        <li style="padding: 15px; border-bottom: 1px solid #ddd; font-family: sans-serif; list-style: none; display: flex; justify-content: space-between; max-width: 600px; align-items: center;">
           <div>
             <strong>👤 ${tenant.name}</strong> — 🏠 ${tenant.unit}
           </div>
-          <div>
+          <div style="display: flex; align-items: center;">
             ${rentButtonOrStatus}
+            ${deleteButton}
           </div>
         </li>
       `;

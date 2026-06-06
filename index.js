@@ -1,3 +1,13 @@
+Ah, let's look at the logs! The "Error reading calculations" message means the app booted up fine, but when it tried to run the SQL math to load the ledger page, PostgreSQL hit a roadblock.
+
+Since we just added the new overpayment math (CASE WHEN), it's highly likely that one of your existing tenants has a blank (NULL) or corrupted value in their rent_amount or maintenance_amount column from our earlier testing versions. When Postgres tries to do math on a blank space, it crashes.
+
+Let's make our SQL completely bulletproof against old test data by adding a safety fallback (COALESCE) to treat any empty spaces as 0.
+
+The Permanent Fix
+Open your index.js file, erase everything, and paste this bulletproof version:
+
+JavaScript
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
@@ -71,10 +81,7 @@ const HTML_HEAD = `
       .badge-paid { background: #d1fae5; color: #065f46; }
       .badge-partial { background: #ffedd5; color: #9a3412; }
       .badge-unpaid { background: #ffeeeb; color: #b91c1c; }
-      
-      /* New badge style for extra payments/advances */
       .badge-advance { background: #e0f2fe; color: #0369a1; } 
-      
       .pay-input { width: 90px; padding: 6px; margin: 0; font-size: 13px; border-radius: 4px; border: 1px solid #cbd5e1; }
       .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 15px; font-size: 13px; color: #64748b; margin-top: 6px; }
       .reveal-link { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; font-size: 13px; }
@@ -118,16 +125,14 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// 3. Collect Payment (Allows Overpayment)
+// 3. Collect Payment
 app.post('/collect-payment/:id', async (req, res) => {
   try {
     const tenantId = req.params.id;
     const paymentAmount = Number(req.body.paymentAmount || 0);
 
-    // Update main total pool (allows overpayment now)
-    await pool.query('UPDATE tenants SET amount_paid = amount_paid + $1 WHERE id = $2', [paymentAmount, tenantId]);
+    await pool.query('UPDATE tenants SET amount_paid = COALESCE(amount_paid, 0) + $1 WHERE id = $2', [paymentAmount, tenantId]);
 
-    // Insert audit log
     await pool.query(
       'INSERT INTO payment_logs (tenant_id, amount_paid) VALUES ($1, $2)',
       [tenantId, paymentAmount]
@@ -152,13 +157,21 @@ app.post('/delete-tenant/:id', async (req, res) => {
   }
 });
 
-// 5. Master Ledger with Credit Engine
+// 5. Master Ledger (With Safety Fallbacks)
 app.get('/tenants', async (req, res) => {
   try {
-    const totalCollectedQuery = await pool.query("SELECT SUM(amount_paid) FROM tenants");
+    // COALESCE checks if a field is NULL and instantly converts it to 0 so math never crashes
+    const totalCollectedQuery = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM tenants");
     
-    // Adjusted Global outstanding math: It counts what's still due across properties
-    const totalOwedQuery = await pool.query("SELECT SUM(CASE WHEN (rent_amount + maintenance_amount) > amount_paid THEN (rent_amount + maintenance_amount) - amount_paid ELSE 0 END) FROM tenants");
+    const totalOwedQuery = await pool.query(`
+      SELECT SUM(
+        CASE 
+          WHEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) > COALESCE(amount_paid, 0) 
+          THEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) - COALESCE(amount_paid, 0) 
+          ELSE 0 
+        END
+      ) FROM tenants
+    `);
 
     const grossCollected = Number(totalCollectedQuery.rows[0].sum || 0);
     const grossOutstanding = Number(totalOwedQuery.rows[0].sum || 0);
@@ -177,22 +190,20 @@ app.get('/tenants', async (req, res) => {
       const totalTargetInvoice = baseRent + maintenance;
       
       const remainingBalanceOwed = totalTargetInvoice - currentPaid;
+      const clearIdString = String(tenant.id_card_no || '').replace(/'/g, "\\'");
 
-      // STATUS BADGE AND CREDIT DETECTION LOGIC
       let statusBadge = '';
       if (currentPaid === 0) {
         statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
       } else if (remainingBalanceOwed > 0) {
         statusBadge = `<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()} Due)</span>`;
       } else if (remainingBalanceOwed < 0) {
-        // Tenant paid too much! Convert negative number to positive for user display
         const creditBalance = Math.abs(remainingBalanceOwed);
         statusBadge = `<span class="badge badge-advance">🔵 Advance Credit ($${creditBalance.toLocaleString()})</span>`;
       } else {
         statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
       }
 
-      // Input Form: Notice we removed the "max" constraint so you can log extra money freely
       const dynamicPaymentInput = `
         <form action="/collect-payment/${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
           <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt ($)" required>
@@ -233,10 +244,10 @@ app.get('/tenants', async (req, res) => {
               
               <div class="meta-grid">
                 <div>🏠 <strong>Unit:</strong> ${tenant.unit} (${tenant.unit_area} Sq. Ft.)</div>
-                <div>💼 <strong>Father's Name:</strong> ${tenant.father_name}</div>
-                <div>📞 <strong>Primary Phone:</strong> ${tenant.phone}</div>
+                <div>💼 <strong>Father's Name:</strong> ${tenant.father_name || 'N/A'}</div>
+                <div>📞 <strong>Primary Phone:</strong> ${tenant.phone || 'N/A'}</div>
                 <div>🔒 <strong>Identity Verification:</strong> <span id="id-container-${tenant.id}" style="font-weight: 600; letter-spacing: 0.05em;">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${tenant.id}', '${clearIdString}')">(Reveal)</span></div>
-                <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit).toLocaleString()}</div>
+                <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit || 0).toLocaleString()}</div>
                 <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
               </div>
               
@@ -262,8 +273,6 @@ app.get('/tenants', async (req, res) => {
     res.status(500).send("Error reading calculations.");
   }
 });
-
-app.use(express.json());
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);

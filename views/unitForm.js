@@ -25,9 +25,9 @@ function renderUnitForm(unitsRowsHTML) {
       <thead>
         <tr style="background:#1e293b; color:white; font-size:13px; text-transform:uppercase;">
           <th style="padding:12px;">Portion Name</th>
-          <th style="padding:12px;">Size</th>
-          <th style="padding:12px;">Base Rent</th>
-          <th style="padding:12px;">Maintenance</th>
+          <th style="padding:12px;">Size (Sqft)</th>
+          <th style="padding:12px;">Base Rent (₹)</th>
+          <th style="padding:12px;">Maintenance (₹)</th>
           <th style="padding:12px;">Status</th>
           <th style="padding:12px; text-align:right;">Actions</th>
         </tr>
@@ -36,6 +36,19 @@ function renderUnitForm(unitsRowsHTML) {
         ${unitsRowsHTML || '<tr><td colspan="6" style="padding:20px; text-align:center; color:#64748b;">No portions found. Use the form above to add an asset.</td></tr>'}
       </tbody>
     </table>
+
+    <script>
+      // Live inline row switcher script
+      function startInlineEdit(unitId) {
+        document.getElementById('view-row-' + unitId).style.display = 'none';
+        document.getElementById('edit-row-' + unitId).style.display = 'table-row';
+      }
+
+      function cancelInlineEdit(unitId) {
+        document.getElementById('edit-row-' + unitId).style.display = 'none';
+        document.getElementById('view-row-' + unitId).style.display = 'table-row';
+      }
+    </script>
   `;
 }
 

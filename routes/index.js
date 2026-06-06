@@ -40,26 +40,56 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 2. Add Unit Layout Form Page
+// 2. Add/Edit Unit Layout Page
 router.get('/add-unit', async (req, res) => {
   try {
     const unitsListQuery = await pool.query('SELECT * FROM units ORDER BY unit_name ASC');
     let rowsHTML = '';
+    
     unitsListQuery.rows.forEach(u => {
-      const actionButton = u.is_occupied 
+      const deleteButton = u.is_occupied 
         ? `<span style="font-size:12px; color:#94a3b8; font-style:italic;">Cannot Delete (Occupied)</span>`
-        : `<form action="/delete-unit/${u.id}" method="POST" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to permanently remove [${u.unit_name}] from your property assets database?');">
-             <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size:12px;">🗑️ Delete</button>
+        : `<form action="/delete-unit/${u.id}" method="POST" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to permanently remove [${u.unit_name}]?');">
+             <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size:12px; background:#ef4444;">🗑️ Delete</button>
            </form>`;
 
       rowsHTML += `
-        <tr style="font-size:14px; border-bottom:1px solid #e2e8f0;">
+        <!-- STANDARD ROW VIEW MODE -->
+        <tr id="view-row-${u.id}" style="font-size:14px; border-bottom:1px solid #e2e8f0;">
           <td style="padding:10px; font-weight:600;">🏢 ${u.unit_name}</td>
           <td style="padding:10px;">${u.unit_area} Sqft</td>
           <td style="padding:10px; font-weight:600;">₹${Number(u.rent_amount).toLocaleString('en-IN')}</td>
           <td style="padding:10px;">₹${Number(u.maintenance_amount).toLocaleString('en-IN')}</td>
           <td style="padding:10px;">${u.is_occupied ? '<span class="badge badge-unpaid">Occupied</span>' : '<span class="badge badge-paid">Vacant</span>'}</td>
-          <td style="padding:10px; text-align:right;">${actionButton}</td>
+          <td style="padding:10px; text-align:right; display:flex; justify-content:flex-end; gap:6px; align-items:center;">
+            <button class="btn btn-secondary" onclick="startInlineEdit('${u.id}')" style="padding: 4px 8px; font-size:12px;">📝 Edit</button>
+            ${deleteButton}
+          </td>
+        </tr>
+
+        <!-- INLINE EDIT MODE FORM ROW (HIDDEN BY DEFAULT) -->
+        <tr id="edit-row-${u.id}" style="display:none; font-size:14px; background:#f8fafc; border-bottom:1px solid #cbd5e1;">
+          <form action="/update-unit/${u.id}" method="POST">
+            <td style="padding:6px 10px;">
+              <input type="text" name="unitName" value="${u.unit_name}" required style="margin:0; padding:6px; font-size:13px;">
+            </td>
+            <td style="padding:6px 10px;">
+              <input type="number" name="unitArea" value="${u.unit_area}" required style="margin:0; padding:6px; font-size:13px; width:90px;">
+            </td>
+            <td style="padding:6px 10px;">
+              <input type="number" name="rentAmount" value="${u.rent_amount}" required style="margin:0; padding:6px; font-size:13px; width:100px; font-weight:600;">
+            </td>
+            <td style="padding:6px 10px;">
+              <input type="number" name="maintenanceAmount" value="${u.maintenance_amount}" required style="margin:0; padding:6px; font-size:13px; width:100px;">
+            </td>
+            <td style="padding:10px; color:#64748b; font-style:italic; font-size:13px;">
+              ${u.is_occupied ? 'Occupied' : 'Vacant'}
+            </td>
+            <td style="padding:6px 10px; text-align:right; white-space:nowrap;">
+              <button type="submit" class="btn btn-success" style="padding: 4px 10px; font-size:12px; margin-right:4px;">💾 Save</button>
+              <button type="button" class="btn btn-secondary" onclick="cancelInlineEdit('${u.id}')" style="padding: 4px 10px; font-size:12px;">❌ Esc</button>
+            </td>
+          </form>
         </tr>
       `;
     });
@@ -78,6 +108,25 @@ router.post('/save-unit', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Portion save database collision error.");
+  }
+});
+
+// NEW POST METHOD ROUTE: Submits inline modifications safely back into our database logs
+router.post('/update-unit/:unitId', async (req, res) => {
+  try {
+    const unitId = req.params.unitId;
+    const { unitName, unitArea, rentAmount, maintenanceAmount } = req.body;
+
+    await pool.query(`
+      UPDATE units 
+      SET unit_name = $1, unit_area = $2, rent_amount = $3, maintenance_amount = $4 
+      WHERE id = $5
+    `, [unitName, unitArea || 0, rentAmount || 0, maintenanceAmount || 0, unitId]);
+
+    res.redirect('/add-unit');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error compiling inline portion updates.");
   }
 });
 
@@ -161,7 +210,6 @@ router.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const { itemDesc, itemAmount, selectedMonth } = req.body;
-    
     const parts = selectedMonth.split(' ');
     const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let nextIndex = (monthArray.indexOf(parts[0]) + 1) % 12;
@@ -200,7 +248,7 @@ router.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
-// 7. Core Ledger Roll View Sheet (UPGRADED COLLAPSIBLE SYSTEM WITH LIFETIME AUDITS)
+// 7. Core Ledger Roll View Sheet
 router.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -210,7 +258,7 @@ router.get('/tenants', async (req, res) => {
     const allExtras = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1)', [selectedMonth]);
     const pendingExtras = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1) AND item_billing_month != $1', [selectedMonth]);
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
-    const statsOwed = await pool.query(`SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END) FROM invoices LEFT JOIN (SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id) extras ON invoices.id = extras.invoice_id WHERE invoices.billing_month = $1`, [selectedMonth]);
+    const statsOwed = await pool.query suicide(`SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END) FROM invoices LEFT JOIN (SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id) extras ON invoices.id = extras.invoice_id WHERE invoices.billing_month = $1`, [selectedMonth]);
 
     const monthsDropdown = await pool.query('SELECT DISTINCT billing_month FROM invoices');
     const availableMonths = monthsDropdown.rows.map(r => r.billing_month);
@@ -228,7 +276,6 @@ router.get('/tenants', async (req, res) => {
       ORDER BY units.unit_name ASC
     `, [selectedMonth]);
 
-    // FETCH GLOBAL LIFETIME AUDIT HISTORY: Pulls every payment transaction globally
     const masterHistoryLogsQuery = await pool.query(`
       SELECT payment_logs.*, invoices.billing_month 
       FROM payment_logs 
@@ -269,11 +316,7 @@ router.get('/tenants', async (req, res) => {
         pendingItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">⏳ [Next Month] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}<form action="/delete-extra-item/${i.id}" method="POST" style="display:inline; margin:0;"><input type="hidden" name="selectedMonth" value="${selectedMonth}"><button type="submit" class="charge-tag-delete">&times;</button></form></div>`; });
       }
 
-      // COMPILE MASTER LIFETIME LOG DRAWER TIMELINE: Pulls transactions across ALL dates, regardless of month
       let masterAuditHTML = '';
-      const tenantHistory = globalHistoryLogs.filter(log => log.invoice_id === row.invoice_id || globalHistoryLogs.some(lh => lh.invoice_id === log.invoice_id && lh.id === log.id));
-      
-      // Select log entries linked to this specific tenant's account pool
       globalHistoryLogs.forEach(l => {
         masterAuditHTML += `
           <div class="history-item">
@@ -296,7 +339,6 @@ router.get('/tenants', async (req, res) => {
 
       tenantRows += `
         <li class="tenant-item" data-search="${row.name} ${row.unit_name} ${row.phone}">
-          
           <div class="row-summary" onclick="toggleDrawer('${row.invoice_id}', event)">
             <div class="col-name">
               <strong>👤 ${row.name}</strong> 
@@ -338,7 +380,6 @@ router.get('/tenants', async (req, res) => {
               ${masterAuditHTML || '<div style="font-size:11px; color:#94a3b8;">No lifetime payments registered on this account yet.</div>'}
             </div>
           </div>
-          
         </li>
       `;
     });
@@ -396,7 +437,7 @@ router.get('/manage-profiles', async (req, res) => {
     result.rows.forEach(t => {
       rowsHTML += `
         <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; justify-content: space-between;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
               <strong>👤 ${t.name}</strong> — <span style="color:#2563eb; font-weight:600;">Unit ${t.unit_name}</span> (${t.unit_area} Sqft)
               <div style="font-size:13px; color:#64748b; margin-top:4px;">Father: ${t.father_name} | Phone: +91 ${t.phone} | Rent: ₹${Number(t.rent_amount).toLocaleString('en-IN')}<br>Aadhaar: <span id="id-container-${t.id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${t.id}', '${String(t.id_card_no).replace(/'/g, "\\'")}')">(Reveal)</span></div>

@@ -29,6 +29,7 @@ async function initDatabase() {
     );
   `);
 
+  // Upgrade the invoices table to include ad-hoc expense metrics
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -39,6 +40,13 @@ async function initDatabase() {
       amount_paid NUMERIC DEFAULT 0,
       UNIQUE(tenant_id, billing_month)
     );
+  `);
+
+  // Add the custom charge metrics to invoices if they do not exist
+  await pool.query(`
+    ALTER TABLE invoices 
+    ADD COLUMN IF NOT EXISTS extra_charges NUMERIC DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS extra_charges_desc TEXT DEFAULT '';
   `);
 
   await pool.query(`
@@ -92,11 +100,13 @@ const HTML_HEAD = `
       .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
       .history-item { font-size: 12px; color: #334155; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
       .history-item:last-child { border-bottom: none; }
-      
-      /* New Search Bar Styling Box */
       .search-box { position: relative; margin-bottom: 20px; }
-      .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; }
+      .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
       .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
+      
+      /* Auxiliary maintenance modifier form block style */
+      .extra-charge-form { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
+      .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
     </style>
     <script>
       function toggleReveal(id, actualValue) {
@@ -110,19 +120,15 @@ const HTML_HEAD = `
         }
       }
 
-      // NEW CLIENT-SIDE SEARCH FILTER ALGORITHM
       function filterTenants() {
         const query = document.getElementById('tenantSearch').value.toLowerCase();
         const items = document.getElementsByClassName('tenant-item');
-        
         for (let i = 0; i < items.length; i++) {
-          // Pull names, units, and phone numbers stored inside the searchable attributes
           const searchContent = items[i].getAttribute('data-search').toLowerCase();
-          
           if (searchContent.includes(query)) {
-            items[i].style.display = 'flex'; // Show card
+            items[i].style.display = 'flex';
           } else {
-            items[i].style.display = 'none'; // Hide card
+            items[i].style.display = 'none';
           }
         }
       }
@@ -195,8 +201,8 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     
     for (let tenant of tenantsResult.rows) {
       await pool.query(`
-        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid)
-        VALUES ($1, $2, $3, $4, 0)
+        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid, extra_charges, extra_charges_desc)
+        VALUES ($1, $2, $3, $4, 0, 0, '')
         ON CONFLICT (tenant_id, billing_month) DO NOTHING
       `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount]);
     }
@@ -205,6 +211,27 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Error generating monthly statements.");
+  }
+});
+
+// NEW ACTION ROUTE: Update Ad-hoc Maintenance Details on Invoice Row
+app.post('/update-extra-charges/:invoiceId', async (req, res) => {
+  try {
+    const invoiceId = req.params.invoiceId;
+    const extraCharges = Number(req.body.extraCharges || 0);
+    const extraChargesDesc = req.body.extraChargesDesc || '';
+    const selectedMonth = req.body.selectedMonth;
+
+    await pool.query(`
+      UPDATE invoices 
+      SET extra_charges = $1, extra_charges_desc = $2 
+      WHERE id = $3
+    `, [extraCharges, extraChargesDesc, invoiceId]);
+
+    res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error mapping maintenance expenses.");
   }
 });
 
@@ -230,8 +257,10 @@ app.get('/tenants', async (req, res) => {
     const selectedMonth = req.query.month || currentMonthLabel;
 
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
+    
+    // Updated Global Math calculation includes extra_charges fields natively
     const statsOwed = await pool.query(`
-      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged) > amount_paid THEN (rent_charged + maintenance_charged) - amount_paid ELSE 0 END)
+      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(extra_charges, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(extra_charges, 0)) - amount_paid ELSE 0 END)
       FROM invoices WHERE billing_month = $1
     `, [selectedMonth]);
 
@@ -243,7 +272,7 @@ app.get('/tenants', async (req, res) => {
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
 
     const ledgerResult = await pool.query(`
-      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month,
+      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.extra_charges, invoices.extra_charges_desc,
              tenants.id AS tenant_id, tenants.name, tenants.unit, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.unit_area, tenants.security_deposit
       FROM invoices
       JOIN tenants ON invoices.tenant_id = tenants.id
@@ -256,13 +285,19 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     ledgerResult.rows.forEach(row => {
-      const targetInvoice = Number(row.rent_charged) + Number(row.maintenance_charged);
+      const baseRent = Number(row.rent_charged || 0);
+      const maintenance = Number(row.maintenance_charged || 0);
+      const extraCharges = Number(row.extra_charges || 0);
+      
+      // Dynamic operational target formula update
+      const targetInvoice = baseRent + maintenance + extraCharges;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
       const clearIdString = String(row.id_card_no || '').replace(/'/g, "\\'");
 
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
-      const fmtRent = Number(row.rent_charged).toLocaleString('en-IN');
-      const fmtMaint = Number(row.maintenance_charged).toLocaleString('en-IN');
+      const fmtRent = baseRent.toLocaleString('en-IN');
+      const fmtMaint = maintenance.toLocaleString('en-IN');
+      const fmtExtra = extraCharges.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
@@ -287,13 +322,28 @@ app.get('/tenants', async (req, res) => {
         </form>
       `;
 
+      // NEW FORM INLINE: Allows adding/editing ad-hoc charges and descriptions directly on the row card
+      const extraChargesForm = `
+        <form action="/update-extra-charges/${row.invoice_id}" method="POST" class="extra-charge-form">
+          <input type="hidden" name="selectedMonth" value="${selectedMonth}">
+          <div style="flex: 2;">
+            <label style="font-size:11px; margin-bottom:2px;">Ad-hoc Work Description</label>
+            <input type="text" name="extraChargesDesc" value="${row.extra_charges_desc || ''}" placeholder="e.g., Plumbing Repair" required style="width:100%;">
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size:11px; margin-bottom:2px;">Amount (₹)</label>
+            <input type="number" name="extraCharges" value="${extraCharges || ''}" placeholder="₹ Amount" required style="width:100%;">
+          </div>
+          <button type="submit" class="btn btn-secondary" style="padding: 7px 12px; font-size:12px; background:#e2e8f0;">Update Bill</button>
+        </form>
+      `;
+
       let internalLogs = '';
       globalLogs.filter(l => l.invoice_id === row.invoice_id).forEach(l => {
         const cleanDate = new Date(l.payment_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
-      // Construct a single searchable metadata string for this row card
       const searchMetadata = `${row.name} ${row.unit} ${row.phone} ${row.father_name}`;
 
       tenantRows += `
@@ -308,9 +358,13 @@ app.get('/tenants', async (req, res) => {
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
             <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Extra: ₹${fmtExtra})</div>
           </div>
+          ${row.extra_charges_desc ? `<div style="font-size:12px; margin-top:6px; color:#475569; background:#f1f5f9; padding:6px 10px; border-radius:4px;">🛠️ <strong>Ad-hoc Charge Note:</strong> ${row.extra_charges_desc} (+₹${fmtExtra})</div>` : ''}
           <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
+          
+          ${extraChargesForm}
+
           <div class="history-box">
             <span class="history-title">📜 Month Payment Audit Timeline</span>
             ${internalLogs || '<div style="font-size:11px; color:#94a3b8;">No transactions logged for this month statement pool.</div>'}
@@ -356,6 +410,7 @@ app.get('/tenants', async (req, res) => {
   }
 });
 
+// Upgraded printable Invoice template to dynamically render custom charge line items
 app.get('/invoice/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
@@ -366,8 +421,24 @@ app.get('/invoice/:invoiceId', async (req, res) => {
 
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
-    const totalCharged = Number(inv.rent_charged) + Number(inv.maintenance_charged);
+    
+    const baseRent = Number(inv.rent_charged || 0);
+    const maintenance = Number(inv.maintenance_charged || 0);
+    const extraCharges = Number(inv.extra_charges || 0);
+    
+    const totalCharged = baseRent + maintenance + extraCharges;
     const balance = totalCharged - Number(inv.amount_paid);
+
+    // Dynamic line item generation block for the invoice template
+    let extraChargeRowHTML = '';
+    if (extraCharges > 0) {
+      extraChargeRowHTML = `
+        <tr>
+          <td>Ad-hoc Charges: ${inv.extra_charges_desc || 'General Maintenance Upkeep Work'}</td>
+          <td style="text-align: right;">₹${extraCharges.toLocaleString('en-IN')}</td>
+        </tr>
+      `;
+    }
 
     res.send(`
       <!DOCTYPE html>
@@ -421,12 +492,13 @@ app.get('/invoice/:invoiceId', async (req, res) => {
             <tbody>
               <tr>
                 <td>Monthly Base Rent Accommodation Charges</td>
-                <td style="text-align: right;">₹${Number(inv.rent_charged).toLocaleString('en-IN')}</td>
+                <td style="text-align: right;">₹${baseRent.toLocaleString('en-IN')}</td>
               </tr>
               <tr>
                 <td>Common Area Maintenance Expenses</td>
-                <td style="text-align: right;">₹${Number(inv.maintenance_charged).toLocaleString('en-IN')}</td>
+                <td style="text-align: right;">₹${maintenance.toLocaleString('en-IN')}</td>
               </tr>
+              ${extraChargeRowHTML}
             </tbody>
           </table>
 

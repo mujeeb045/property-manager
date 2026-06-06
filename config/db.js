@@ -18,7 +18,7 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Permanent Tenant Profiles
+  // 2. Permanent Tenant Profiles (Upgraded with an active/historical tracking flag)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -28,9 +28,13 @@ async function initDatabase() {
       phone TEXT,
       alt_phone TEXT,
       id_card_no TEXT,
-      security_deposit NUMERIC DEFAULT 0
+      security_deposit NUMERIC DEFAULT 0,
+      is_active BOOLEAN DEFAULT TRUE -- NEW STATUS TRACKER FLAG
     );
   `);
+
+  // Add the column dynamically if it didn't exist from previous builds
+  await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`);
 
   // 3. Monthly Invoice Records Sheet
   await pool.query(`
@@ -67,15 +71,12 @@ async function initDatabase() {
     );
   `);
 
-  // 🛠️ AUTOMATED DATA INTEGRITY REPAIR SCRIPT
-  // This looks for any units marked as occupied that don't actually link to an existing tenant,
-  // and safely opens them back up to 'Vacant' status so you can delete or re-allocate them!
+  // 🛠️ DATA INTEGRITY CHECK: Re-sync room flags based only on ACTIVE tenants
   await pool.query(`
     UPDATE units 
     SET is_occupied = FALSE 
-    WHERE id NOT IN (SELECT DISTINCT unit_id FROM tenants WHERE unit_id IS NOT NULL);
+    WHERE id NOT IN (SELECT DISTINCT unit_id FROM tenants WHERE unit_id IS NOT NULL AND is_active = TRUE);
   `);
-  console.log("🛠️ Database integrity check complete: Ghost occupancy flags repaired successfully.");
 }
 
 initDatabase().catch(err => console.error("Database asset registry failed to sync:", err));

@@ -40,13 +40,12 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 2. Add Unit Layout Form Page (Upgraded with Delete Action Rows)
+// 2. Add Unit Layout Form Page
 router.get('/add-unit', async (req, res) => {
   try {
     const unitsListQuery = await pool.query('SELECT * FROM units ORDER BY unit_name ASC');
     let rowsHTML = '';
     unitsListQuery.rows.forEach(u => {
-      // Inline conditional rendering: Show a disabled notice if occupied, or a clickable form if vacant
       const actionButton = u.is_occupied 
         ? `<span style="font-size:12px; color:#94a3b8; font-style:italic;">Cannot Delete (Occupied)</span>`
         : `<form action="/delete-unit/${u.id}" method="POST" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to permanently remove [${u.unit_name}] from your property assets database?');">
@@ -82,17 +81,13 @@ router.post('/save-unit', async (req, res) => {
   }
 });
 
-// NEW BACKEND ROUTER ACTION: Safely removes vacant unit layout profiles from the DB
 router.post('/delete-unit/:unitId', async (req, res) => {
   try {
     const unitId = req.params.unitId;
-    
-    // Safety check: ensure the unit isn't occupied before running delete command
     const checkQuery = await pool.query('SELECT is_occupied FROM units WHERE id = $1', [unitId]);
     if (checkQuery.rows.length > 0 && checkQuery.rows[0].is_occupied) {
-      return res.status(400).send("Operation Rejected: You cannot delete a unit that currently houses an active tenant record.");
+      return res.status(400).send("Operation Rejected: You cannot delete an occupied unit.");
     }
-
     await pool.query('DELETE FROM units WHERE id = $1', [unitId]);
     res.redirect('/add-unit');
   } catch (err) {
@@ -119,7 +114,8 @@ router.get('/register-tenant', async (req, res) => {
 router.post('/allocate-tenant', async (req, res) => {
   try {
     const { unitId, tenantName, fatherName, phone, altPhone, idCardNo, securityDeposit } = req.body;
-    await pool.query('INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit) VALUES ($1,$2,$3,$4,$5,$6,$7)', [unitId, tenantName, fatherName, phone, altPhone||'N/A', idCardNo, securityDeposit||0]);
+    // Set is_active = TRUE explicitly upon profile creation
+    await pool.query('INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)', [unitId, tenantName, fatherName, phone, altPhone||'N/A', idCardNo, securityDeposit||0]);
     await pool.query('UPDATE units SET is_occupied=TRUE WHERE id=$1', [unitId]);
     res.redirect('/');
   } catch (err) {
@@ -128,7 +124,7 @@ router.post('/allocate-tenant', async (req, res) => {
   }
 });
 
-// 4. Batch Invoice Process Generator Router logic
+// 4. Batch Invoice Process Generator (Generates bills ONLY for active occupants)
 router.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -137,7 +133,8 @@ router.post('/generate-monthly-invoices', async (req, res) => {
     const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
     const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
 
-    const activeTenants = await pool.query('SELECT tenants.id as tenant_id, units.rent_amount, units.maintenance_amount FROM tenants JOIN units ON tenants.unit_id = units.id');
+    // Filter by is_active = TRUE so departed records don't get new recurring statements
+    const activeTenants = await pool.query('SELECT tenants.id as tenant_id, units.rent_amount, units.maintenance_amount FROM tenants JOIN units ON tenants.unit_id = units.id WHERE tenants.is_active = TRUE');
     
     for (let t of activeTenants.rows) {
       let carriedBalance = 0;
@@ -166,7 +163,6 @@ router.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const { itemDesc, itemAmount, selectedMonth } = req.body;
-    
     const parts = selectedMonth.split(' ');
     const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let nextIndex = (monthArray.indexOf(parts[0]) + 1) % 12;
@@ -205,7 +201,7 @@ router.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
-// 7. Core Ledger Roll View Sheet Directory
+// 7. Core Ledger Roll View Sheet (Altered with LEFT JOIN to pull departed history perfectly)
 router.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -222,7 +218,18 @@ router.get('/tenants', async (req, res) => {
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
     if (!availableMonths.includes(selectedMonth)) availableMonths.push(selectedMonth);
 
-    const ledger = await pool.query(`SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.arrears_brought_forward, tenants.id AS tenant_id, tenants.name, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.security_deposit, units.unit_name, units.unit_area FROM invoices JOIN tenants ON invoices.tenant_id = tenants.id JOIN units ON tenants.unit_id = units.id WHERE invoices.billing_month = $1 ORDER BY units.unit_name ASC`, [selectedMonth]);
+    // CRITICAL FIX: Changed to LEFT JOIN on units so that if a tenant moved out and unit_id became null, their past statements still display their layout criteria!
+    const ledger = await pool.query(`
+      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.arrears_brought_forward, 
+             tenants.id AS tenant_id, tenants.name, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.security_deposit, tenants.is_active,
+             COALESCE(units.unit_name, 'Departed History Archive') as unit_name, COALESCE(units.unit_area, 0) as unit_area 
+      FROM invoices 
+      JOIN tenants ON invoices.tenant_id = tenants.id 
+      LEFT JOIN units ON tenants.unit_id = units.id 
+      WHERE invoices.billing_month = $1 
+      ORDER BY units.unit_name ASC
+    `, [selectedMonth]);
+    
     const globalLogs = await pool.query('SELECT * FROM payment_logs ORDER BY payment_date DESC');
 
     let tenantRows = '';
@@ -238,14 +245,24 @@ router.get('/tenants', async (req, res) => {
       const remainingBalance = targetInvoice - Number(row.amount_paid);
 
       let statusBadge = '';
-      if (remainingBalance < 0) statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN')})</span>`;
-      else if (remainingBalance === 0) statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
-      else if (Number(row.amount_paid) === 0 && arrears >= 0) statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
-      else statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
+      if (!row.is_active) {
+        statusBadge = `<span class="badge" style="background:#e2e8f0; color:#475569;">🛑 Left Property (Archived Log)</span>`;
+      } else if (remainingBalance < 0) {
+        statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN')})</span>`;
+      } else if (remainingBalance === 0) {
+        statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
+      } else if (Number(row.amount_paid) === 0 && arrears >= 0) {
+        statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
+      }
 
       let tagsHTML = '';
       activeItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#f0fdf4; border-color:#bbf7d0; color:#166534;">📋 [Billed] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}</div>`; });
-      pendingItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">⏳ [Next Month Bill] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}<form action="/delete-extra-item/${i.id}" method="POST" style="display:inline; margin:0;"><input type="hidden" name="selectedMonth" value="${selectedMonth}"><button type="submit" class="charge-tag-delete">&times;</button></form></div>`; });
+      
+      if (row.is_active) {
+        pendingItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">⏳ [Next Month Bill] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}<form action="/delete-extra-item/${i.id}" method="POST" style="display:inline; margin:0;"><input type="hidden" name="selectedMonth" value="${selectedMonth}"><button type="submit" class="charge-tag-delete">&times;</button></form></div>`; });
+      }
 
       let internalLogs = '';
       globalLogs.rows.filter(l => l.invoice_id === row.invoice_id).forEach(l => {
@@ -253,6 +270,16 @@ router.get('/tenants', async (req, res) => {
       });
 
       let alertHTML = arrears > 0 ? `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward: +₹${arrears.toLocaleString('en-IN')}</div>` : (arrears < 0 ? `<div style="font-size:12px; margin-top:6px; color:#0369a1; background:#f0f9ff; padding:6px 10px; border-radius:4px; font-weight:600;">🔵 Advance Credit Applied: -₹${Math.abs(arrears).toLocaleString('en-IN')}</div>` : '');
+
+      // Hide next-month repair logging forms if the tenant has already moved out
+      const repairFormHTML = row.is_active ? `
+        <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
+          <input type="hidden" name="selectedMonth" value="${selectedMonth}">
+          <div style="flex:2;"><label style="color:#0369a1; font-size:11px;">🛠️ Log Work Now (Bills Next Month)</label><input type="text" name="itemDesc" placeholder="e.g. Plumbing Repair" required style="width:100%;"></div>
+          <div style="flex:1;"><label style="color:#0369a1; font-size:11px;">Cost (₹)</label><input type="number" name="itemAmount" placeholder="Price" required style="width:100%;"></div>
+          <button type="submit" class="btn btn-primary" style="padding: 7px 12px; font-size:12px; background:#0284c7;">Log Repair</button>
+        </form>
+      ` : '';
 
       tenantRows += `
         <li class="tenant-item" data-search="${row.name} ${row.unit_name} ${row.phone}">
@@ -278,12 +305,7 @@ router.get('/tenants', async (req, res) => {
           ${alertHTML}
           ${tagsHTML ? `<div class="charge-tag-list">${tagsHTML}</div>` : ''}
           <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${Number(row.amount_paid).toLocaleString('en-IN')}</div>
-          <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
-            <input type="hidden" name="selectedMonth" value="${selectedMonth}">
-            <div style="flex:2;"><label style="color:#0369a1; font-size:11px;">🛠️ Log Work Now (Bills Next Month)</label><input type="text" name="itemDesc" placeholder="e.g. Plumbing Repair" required style="width:100%;"></div>
-            <div style="flex:1;"><label style="color:#0369a1; font-size:11px;">Cost (₹)</label><input type="number" name="itemAmount" placeholder="Price" required style="width:100%;"></div>
-            <button type="submit" class="btn btn-primary" style="padding: 7px 12px; font-size:12px; background:#0284c7;">Log Repair</button>
-          </form>
+          ${repairFormHTML}
           <div class="history-box"><span class="history-title">📜 Month Payment Audit Timeline</span>${internalLogs || '<div style="font-size:11px; color:#94a3b8;">No transactions logged.</div>'}</div>
         </li>
       `;
@@ -303,7 +325,14 @@ router.get('/tenants', async (req, res) => {
 // 8. Printable Statement Invoice Route Handler
 router.get('/invoice/:invoiceId', async (req, res) => {
   try {
-    const invoiceQuery = await pool.query('SELECT invoices.*, tenants.name, tenants.father_name, tenants.phone, units.unit_name FROM invoices JOIN tenants ON invoices.tenant_id = tenants.id JOIN units ON tenants.unit_id = units.id WHERE invoices.id = $1', [req.params.invoiceId]);
+    const invoiceQuery = await pool.query(`
+      SELECT invoices.*, tenants.name, tenants.father_name, tenants.phone, COALESCE(units.unit_name, 'Departed Archive') as unit_name 
+      FROM invoices 
+      JOIN tenants ON invoices.tenant_id = tenants.id 
+      LEFT JOIN units ON tenants.unit_id = units.id 
+      WHERE invoices.id = $1
+    `, [req.params.invoiceId]);
+    
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
 
@@ -327,10 +356,17 @@ router.get('/invoice/:invoiceId', async (req, res) => {
   }
 });
 
-// 9. Profile Record Management & Deletion Routes
+// 9. Profile Record Management Page (Filters down to show only ACTIVE occupants)
 router.get('/manage-profiles', async (req, res) => {
   try {
-    const result = await pool.query('SELECT tenants.*, units.unit_name, units.rent_amount, units.maintenance_amount, units.unit_area FROM tenants JOIN units ON tenants.unit_id = units.id ORDER BY units.unit_name ASC');
+    const result = await pool.query(`
+      SELECT tenants.*, units.unit_name, units.rent_amount, units.maintenance_amount, units.unit_area 
+      FROM tenants 
+      JOIN units ON tenants.unit_id = units.id 
+      WHERE tenants.is_active = TRUE 
+      ORDER BY units.unit_name ASC
+    `);
+    
     let rowsHTML = '';
     result.rows.forEach(t => {
       rowsHTML += `
@@ -357,14 +393,22 @@ router.get('/manage-profiles', async (req, res) => {
   }
 });
 
+// UPGRADED MOVE-OUT LOGIC ROUTER: Soft-archives the tenant instead of destroying rows
 router.post('/delete-tenant/:id/:unitId', async (req, res) => {
   try {
-    await pool.query('DELETE FROM tenants WHERE id = $1', [req.params.id]);
-    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [req.params.unitId]);
+    const tenantId = req.params.id;
+    const unitId = req.params.unitId;
+
+    // 1. Mark tenant as inactive and un-link them from the physical room layout asset
+    await pool.query('UPDATE tenants SET is_active = FALSE, unit_id = NULL WHERE id = $1', [tenantId]);
+    
+    // 2. Open the room asset container back up to vacancy instantly
+    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [unitId]);
+    
     res.redirect('/manage-profiles');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Profile layout drop operations failed.");
+    res.status(500).send("Profile archiving move-out operations failed.");
   }
 });
 

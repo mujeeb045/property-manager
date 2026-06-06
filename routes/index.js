@@ -477,38 +477,53 @@ const ExcelJS = require('exceljs');
 router.get('/export-ledger/:month', async (req, res) => {
   try {
     const selectedMonth = req.params.month;
+    
+    // Pull the exact same dataset as the ledger view
     const ledger = await pool.query(`
-      SELECT tenants.name, units.unit_name, invoices.rent_charged, invoices.maintenance_charged, 
-             invoices.arrears_brought_forward, invoices.amount_paid, units.unit_area
+      SELECT tenants.name, 
+             units.unit_name, 
+             units.unit_area, 
+             invoices.rent_charged, 
+             invoices.maintenance_charged, 
+             invoices.arrears_brought_forward, 
+             invoices.amount_paid,
+             (invoices.rent_charged + invoices.maintenance_charged + invoices.arrears_brought_forward) as total_due
       FROM invoices 
       JOIN tenants ON invoices.tenant_id = tenants.id 
-      JOIN units ON tenants.unit_id = units.id 
+      LEFT JOIN units ON tenants.unit_id = units.id 
       WHERE invoices.billing_month = $1 
       ORDER BY units.unit_name ASC
     `, [selectedMonth]);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Ledger');
+    const worksheet = workbook.addWorksheet('Ledger Details');
 
     worksheet.columns = [
       { header: 'Tenant Name', key: 'name', width: 25 },
-      { header: 'Unit Name', key: 'unit_name', width: 15 },
-      { header: 'Base Rent', key: 'rent', width: 15 },
-      { header: 'Maintenance', key: 'maint', width: 15 },
-      { header: 'Arrears/Rollover', key: 'arrears', width: 15 },
-      { header: 'Amount Paid', key: 'paid', width: 15 }
+      { header: 'Unit/Portion', key: 'unit', width: 15 },
+      { header: 'Area (Sqft)', key: 'area', width: 12 },
+      { header: 'Rent (₹)', key: 'rent', width: 15 },
+      { header: 'Maintenance (₹)', key: 'maint', width: 15 },
+      { header: 'Arrears/Rollover (₹)', key: 'arrears', width: 15 },
+      { header: 'Total Due (₹)', key: 'due', width: 15 },
+      { header: 'Paid (₹)', key: 'paid', width: 15 }
     ];
 
     ledger.rows.forEach(row => {
       worksheet.addRow({
         name: row.name,
-        unit_name: row.unit_name,
+        unit: row.unit_name,
+        area: row.unit_area,
         rent: Number(row.rent_charged),
         maint: Number(row.maintenance_charged),
         arrears: Number(row.arrears_brought_forward),
+        due: Number(row.total_due),
         paid: Number(row.amount_paid)
       });
     });
+
+    // Style the header row
+    worksheet.getRow(1).font = { bold: true };
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=Ledger_${selectedMonth}.xlsx`);
@@ -516,6 +531,6 @@ router.get('/export-ledger/:month', async (req, res) => {
     res.end();
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error generating Excel file.");
+    res.status(500).send("Error generating detailed Excel report.");
   }
 });

@@ -47,13 +47,9 @@ async function initDatabase() {
       id SERIAL PRIMARY KEY,
       invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
       item_desc TEXT NOT NULL,
-      item_amount NUMERIC NOT NULL
+      item_amount NUMERIC NOT NULL,
+      item_billing_month TEXT DEFAULT ''
     );
-  `);
-
-  // NEW: Add a billing_month tracking tag directly to extra items to handle deferred cycles
-  await pool.query(`
-    ALTER TABLE invoice_extra_items ADD COLUMN IF NOT EXISTS item_billing_month TEXT DEFAULT '';
   `);
 
   await pool.query(`
@@ -112,9 +108,6 @@ const HTML_HEAD = `
       .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
       .history-item { font-size: 12px; color: #334155; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
       .history-item:last-child { border-bottom: none; }
-      .search-box { position: relative; margin-bottom: 20px; }
-      .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
-      .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
       
       .extra-charge-form { background: #e0f2fe; border: 1px solid #bae6fd; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
@@ -139,6 +132,7 @@ const HTML_HEAD = `
         }
       }
 
+      // Live front-end search engine script
       function filterTenants() {
         const query = document.getElementById('tenantSearch').value.toLowerCase();
         const items = document.getElementsByClassName('tenant-item');
@@ -156,7 +150,7 @@ const HTML_HEAD = `
         const selectedMonth = document.getElementById('targetMonth').value;
         const selectedYear = document.getElementById('targetYear').value;
         const targetString = selectedMonth + ' ' + selectedYear;
-        return confirm('⚠️ Are you sure you want to generate bills for [' + targetString + ']? Maintenance charges logged in the previous month will automatically attach to this new statement.');
+        return confirm('⚠️ Are you sure you want to generate bills for [' + targetString + ']? Both unpaid arrears AND advance credits will automatically carry forward.');
       }
     </script>
   </head>
@@ -237,7 +231,7 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// UPGRADED BATCH INVOICE GENERATOR WITH PREVIOUS-MONTH AD-HOC DEFERRED COUPLING ENGINE
+// FIXED BILL GENERATOR: Calculates positive balances (Arrears) AND negative balances (Advances) perfectly
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -250,9 +244,8 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
     
     for (let tenant of tenantsResult.rows) {
-      let carriedArrears = 0;
+      let carriedBalance = 0; // Positive = Arrears, Negative = Advance Credit
 
-      // 1. Compute outstanding arrears from previous month
       const prevInvoiceQuery = await pool.query(`
         SELECT invoices.id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.arrears_brought_forward,
                COALESCE(extras.extra_sum, 0) as item_extras
@@ -266,27 +259,22 @@ app.post('/generate-monthly-invoices', async (req, res) => {
       if (prevInvoiceQuery.rows.length > 0) {
         const pInv = prevInvoiceQuery.rows[0];
         const totalChargedLastMonth = Number(pInv.rent_charged) + Number(pInv.maintenance_charged) + Number(pInv.arrears_brought_forward) + Number(pInv.item_extras);
-        const outstandingLastMonth = totalChargedLastMonth - Number(pInv.amount_paid);
-        if (outstandingLastMonth > 0) {
-          carriedArrears = outstandingLastMonth;
-        }
+        
+        // This holds the exact math boundary. If paid > charged, this becomes a negative number (Advance Credit)
+        carriedBalance = totalChargedLastMonth - Number(pInv.amount_paid);
       }
 
-      // 2. Generate the main core invoice row for the target month
       const currentInvoiceResult = await pool.query(`
         INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid, arrears_brought_forward)
         VALUES ($1, $2, $3, $4, 0, $5)
         ON CONFLICT (tenant_id, billing_month) DO UPDATE SET arrears_brought_forward = $5
         RETURNING id
-      `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount, carriedArrears]);
+      `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount, carriedBalance]);
       
       const newInvoiceId = currentInvoiceResult.rows[0].id;
 
-      // 3. DEFERRED AD-HOC TRANSFER: Find repairs added *during* the previous month that were tagged for this month's bill
       if (prevInvoiceQuery.rows.length > 0) {
         const oldInvoiceId = prevInvoiceQuery.rows[0].id;
-        
-        // Re-target item_billing_month items to match the newly generated statement sheet
         await pool.query(`
           UPDATE invoice_extra_items 
           SET invoice_id = $1 
@@ -302,25 +290,22 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
-// UPGRADED ACTION ROUTE: Stores the ad-hoc expense and tags it for the *next month cycle*
 app.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const itemDesc = req.body.itemDesc || 'General Maintenance';
     const itemAmount = Number(req.body.itemAmount || 0);
-    const selectedMonth = req.body.selectedMonth; // Current dashboard context (e.g., "Jun 2026")
+    const selectedMonth = req.body.selectedMonth;
 
-    // Figure out the NEXT calendar month target label
     const parts = selectedMonth.split(' ');
     const currentM = parts[0];
     const currentY = Number(parts[1]);
-    
     const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const currentIndex = monthArray.indexOf(currentM);
     
     let nextM = monthArray[(currentIndex + 1) % 12];
     let nextY = (currentM === "Dec") ? currentY + 1 : currentY;
-    const nextMonthLabel = `${nextM} ${nextY}`; // The target cycle when the tenant will see the bill
+    const nextMonthLabel = `${nextM} ${nextY}`;
 
     await pool.query(`
       INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount, item_billing_month)
@@ -368,19 +353,19 @@ app.get('/tenants', async (req, res) => {
     const currentMonthLabel = `${nowIST.toLocaleDateString('en-IN', { month: 'short' })} ${nowIST.getFullYear()}`;
     const selectedMonth = req.query.month || currentMonthLabel;
 
-    // Pull itemized logs active on *this month's invoice target*
     const allExtrasQuery = await pool.query(`
       SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1)
     `, [selectedMonth]);
     const globalExtras = allExtrasQuery.rows;
 
-    // Pull pending future logs recorded here, but designated for NEXT month's bill
     const pendingExtrasQuery = await pool.query(`
       SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1) AND item_billing_month != $1
     `, [selectedMonth]);
     const globalPending = pendingExtrasQuery.rows;
 
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
+    
+    // Core accounting math tracks absolute gross outstanding ledger debt blocks across the building
     const statsOwed = await pool.query(`
       SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
       FROM invoices
@@ -412,16 +397,13 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     ledgerResult.rows.forEach(row => {
-      // Filter out items charging on THIS month statement
       const myActiveExtras = globalExtras.filter(item => item.invoice_id === row.invoice_id && item.item_billing_month === selectedMonth);
       const sumOfActiveExtras = myActiveExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
-
-      // Filter out items logged now, but deferred to NEXT month
       const myPendingExtras = globalPending.filter(item => item.invoice_id === row.invoice_id);
 
       const baseRent = Number(row.rent_charged || 0);
       const maintenance = Number(row.maintenance_charged || 0);
-      const arrears = Number(row.arrears_brought_forward || 0);
+      const arrears = Number(row.arrears_brought_forward || 0); // Can be positive (arrear) or negative (credit advance)
       
       const targetInvoice = baseRent + maintenance + arrears + sumOfActiveExtras;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
@@ -430,19 +412,18 @@ app.get('/tenants', async (req, res) => {
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
       const fmtRent = baseRent.toLocaleString('en-IN');
       const fmtMaint = maintenance.toLocaleString('en-IN');
-      const fmtArrears = arrears.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
       let statusBadge = '';
-      if (Number(row.amount_paid) === 0) {
-        statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
-      } else if (remainingBalance > 0) {
-        statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
-      } else if (remainingBalance < 0) {
+      if (remainingBalance < 0) {
         statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN')})</span>`;
-      } else {
+      } else if (remainingBalance === 0) {
         statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
+      } else if (Number(row.amount_paid) === 0 && arrears >= 0) {
+        statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
       }
 
       const receiptButton = `<a href="/invoice/${row.invoice_id}" target="_blank" class="btn btn-info">📄 View Invoice</a>`;
@@ -498,6 +479,14 @@ app.get('/tenants', async (req, res) => {
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
+      // ARREARS VS ADVANCE DISPLAY BLOCK
+      let rolloverNotificationHTML = '';
+      if (arrears > 0) {
+        rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward from Last Month: +₹${arrears.toLocaleString('en-IN')}</div>`;
+      } else if (arrears < 0) {
+        rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#0369a1; background:#f0f9ff; padding:6px 10px; border-radius:4px; font-weight:600;">🔵 Advance Credit Applied from Last Month: -₹${Math.abs(arrears).toLocaleString('en-IN')}</div>`;
+      }
+
       const searchMetadata = `${row.name} ${row.unit} ${row.phone} ${row.father_name}`;
 
       tenantRows += `
@@ -512,10 +501,10 @@ app.get('/tenants', async (req, res) => {
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
             <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total Owed: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Arrears: ₹${fmtArrears} + Active Repairs: ₹${sumOfActiveExtras.toLocaleString('en-IN')})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total Owed: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Balance Rollover: ₹${arrears.toLocaleString('en-IN')} + Active Repairs: ₹${sumOfActiveExtras.toLocaleString('en-IN')})</div>
           </div>
           
-          ${arrears > 0 ? `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Brought Forward from Last Month: +₹${fmtArrears}</div>` : ''}
+          ${rolloverNotificationHTML}
           
           <div class="charge-tag-list">
             ${activeChargeTagsHTML}
@@ -583,7 +572,6 @@ app.get('/invoice/:invoiceId', async (req, res) => {
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
     
-    // Select ONLY the extra items designated to print on THIS billing month statement sheet
     const extrasQuery = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id = $1 AND item_billing_month = $2', [invoiceId, inv.billing_month]);
     const myActiveExtras = extrasQuery.rows;
     const sumOfExtras = myActiveExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
@@ -604,12 +592,19 @@ app.get('/invoice/:invoiceId', async (req, res) => {
       `;
     });
 
-    let arrearsRowHTML = '';
+    let rolloverRowHTML = '';
     if (arrears > 0) {
-      arrearsRowHTML = `
+      rolloverRowHTML = `
         <tr style="color: #b91c1c; background: #fef2f2;">
           <td>⚠️ Unpaid Arrears Carried Forward from Past Month Balance</td>
           <td style="text-align: right; font-weight: 600;">₹${arrears.toLocaleString('en-IN')}</td>
+        </tr>
+      `;
+    } else if (arrears < 0) {
+      rolloverRowHTML = `
+        <tr style="color: #0369a1; background: #f0f9ff;">
+          <td>🔵 Advance Credit Applied from Previous Month Payment</td>
+          <td style="text-align: right; font-weight: 600;">-₹${Math.abs(arrears).toLocaleString('en-IN')}</td>
         </tr>
       `;
     }
@@ -672,7 +667,7 @@ app.get('/invoice/:invoiceId', async (req, res) => {
                 <td>Common Area Maintenance Expenses</td>
                 <td style="text-align: right;">₹${maintenance.toLocaleString('en-IN')}</td>
               </tr>
-              ${arrearsRowHTML}
+              ${rolloverRowHTML}
               ${itemizedRowsHTML}
             </tbody>
           </table>

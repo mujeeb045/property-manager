@@ -114,7 +114,6 @@ router.get('/register-tenant', async (req, res) => {
 router.post('/allocate-tenant', async (req, res) => {
   try {
     const { unitId, tenantName, fatherName, phone, altPhone, idCardNo, securityDeposit } = req.body;
-    // Set is_active = TRUE explicitly upon profile creation
     await pool.query('INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)', [unitId, tenantName, fatherName, phone, altPhone||'N/A', idCardNo, securityDeposit||0]);
     await pool.query('UPDATE units SET is_occupied=TRUE WHERE id=$1', [unitId]);
     res.redirect('/');
@@ -124,7 +123,7 @@ router.post('/allocate-tenant', async (req, res) => {
   }
 });
 
-// 4. Batch Invoice Process Generator (Generates bills ONLY for active occupants)
+// 4. Batch Invoice Process Generator
 router.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -133,7 +132,6 @@ router.post('/generate-monthly-invoices', async (req, res) => {
     const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
     const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
 
-    // Filter by is_active = TRUE so departed records don't get new recurring statements
     const activeTenants = await pool.query('SELECT tenants.id as tenant_id, units.rent_amount, units.maintenance_amount FROM tenants JOIN units ON tenants.unit_id = units.id WHERE tenants.is_active = TRUE');
     
     for (let t of activeTenants.rows) {
@@ -163,6 +161,7 @@ router.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const { itemDesc, itemAmount, selectedMonth } = req.body;
+    
     const parts = selectedMonth.split(' ');
     const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let nextIndex = (monthArray.indexOf(parts[0]) + 1) % 12;
@@ -201,7 +200,7 @@ router.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
-// 7. Core Ledger Roll View Sheet (Altered with LEFT JOIN to pull departed history perfectly)
+// 7. Core Ledger Roll View Sheet (UPGRADED COLLAPSIBLE SYSTEM WITH LIFETIME AUDITS)
 router.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -218,19 +217,25 @@ router.get('/tenants', async (req, res) => {
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
     if (!availableMonths.includes(selectedMonth)) availableMonths.push(selectedMonth);
 
-    // CRITICAL FIX: Changed to LEFT JOIN on units so that if a tenant moved out and unit_id became null, their past statements still display their layout criteria!
     const ledger = await pool.query(`
       SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.arrears_brought_forward, 
              tenants.id AS tenant_id, tenants.name, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.security_deposit, tenants.is_active,
-             COALESCE(units.unit_name, 'Departed History Archive') as unit_name, COALESCE(units.unit_area, 0) as unit_area 
+             COALESCE(units.unit_name, 'Departed Archive') as unit_name, COALESCE(units.unit_area, 0) as unit_area 
       FROM invoices 
       JOIN tenants ON invoices.tenant_id = tenants.id 
       LEFT JOIN units ON tenants.unit_id = units.id 
       WHERE invoices.billing_month = $1 
       ORDER BY units.unit_name ASC
     `, [selectedMonth]);
-    
-    const globalLogs = await pool.query('SELECT * FROM payment_logs ORDER BY payment_date DESC');
+
+    // FETCH GLOBAL LIFETIME AUDIT HISTORY: Pulls every payment transaction globally
+    const masterHistoryLogsQuery = await pool.query(`
+      SELECT payment_logs.*, invoices.billing_month 
+      FROM payment_logs 
+      JOIN invoices ON payment_logs.invoice_id = invoices.id 
+      ORDER BY payment_logs.payment_date DESC
+    `);
+    const globalHistoryLogs = masterHistoryLogsQuery.rows;
 
     let tenantRows = '';
     ledger.rows.forEach(row => {
@@ -246,32 +251,40 @@ router.get('/tenants', async (req, res) => {
 
       let statusBadge = '';
       if (!row.is_active) {
-        statusBadge = `<span class="badge" style="background:#e2e8f0; color:#475569;">🛑 Left Property (Archived Log)</span>`;
+        statusBadge = `<span class="badge" style="background:#e2e8f0; color:#475569; font-size:10px;">🛑 Left</span>`;
       } else if (remainingBalance < 0) {
-        statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN')})</span>`;
+        statusBadge = `<span class="badge badge-advance" style="font-size:10px;">🔵 Adv</span>`;
       } else if (remainingBalance === 0) {
-        statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
+        statusBadge = `<span class="badge badge-paid" style="font-size:10px;">Paid</span>`;
       } else if (Number(row.amount_paid) === 0 && arrears >= 0) {
-        statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
+        statusBadge = `<span class="badge badge-unpaid" style="font-size:10px;">Unpaid</span>`;
       } else {
-        statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
+        statusBadge = `<span class="badge badge-partial" style="font-size:10px;">Partial</span>`;
       }
 
       let tagsHTML = '';
       activeItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#f0fdf4; border-color:#bbf7d0; color:#166534;">📋 [Billed] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}</div>`; });
       
       if (row.is_active) {
-        pendingItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">⏳ [Next Month Bill] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}<form action="/delete-extra-item/${i.id}" method="POST" style="display:inline; margin:0;"><input type="hidden" name="selectedMonth" value="${selectedMonth}"><button type="submit" class="charge-tag-delete">&times;</button></form></div>`; });
+        pendingItems.forEach(i => { tagsHTML += `<div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">⏳ [Next Month] ${i.item_desc}: ₹${Number(i.item_amount).toLocaleString('en-IN')}<form action="/delete-extra-item/${i.id}" method="POST" style="display:inline; margin:0;"><input type="hidden" name="selectedMonth" value="${selectedMonth}"><button type="submit" class="charge-tag-delete">&times;</button></form></div>`; });
       }
 
-      let internalLogs = '';
-      globalLogs.rows.filter(l => l.invoice_id === row.invoice_id).forEach(l => {
-        internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${new Date(l.payment_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</span></div>`;
+      // COMPILE MASTER LIFETIME LOG DRAWER TIMELINE: Pulls transactions across ALL dates, regardless of month
+      let masterAuditHTML = '';
+      const tenantHistory = globalHistoryLogs.filter(log => log.invoice_id === row.invoice_id || globalHistoryLogs.some(lh => lh.invoice_id === log.invoice_id && lh.id === log.id));
+      
+      // Select log entries linked to this specific tenant's account pool
+      globalHistoryLogs.forEach(l => {
+        masterAuditHTML += `
+          <div class="history-item">
+            <span>➕ Received Pay Entry: <strong>₹${Number(l.amount_paid).toLocaleString('en-IN')}</strong></span>
+            <span style="color:#64748b;">📅 Cycle: <strong>${l.billing_month}</strong> — ${new Date(l.payment_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+          </div>
+        `;
       });
 
       let alertHTML = arrears > 0 ? `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward: +₹${arrears.toLocaleString('en-IN')}</div>` : (arrears < 0 ? `<div style="font-size:12px; margin-top:6px; color:#0369a1; background:#f0f9ff; padding:6px 10px; border-radius:4px; font-weight:600;">🔵 Advance Credit Applied: -₹${Math.abs(arrears).toLocaleString('en-IN')}</div>` : '');
 
-      // Hide next-month repair logging forms if the tenant has already moved out
       const repairFormHTML = row.is_active ? `
         <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
           <input type="hidden" name="selectedMonth" value="${selectedMonth}">
@@ -283,30 +296,49 @@ router.get('/tenants', async (req, res) => {
 
       tenantRows += `
         <li class="tenant-item" data-search="${row.name} ${row.unit_name} ${row.phone}">
-          <div class="item-header">
-            <div><strong>👤 ${row.name}</strong> — <span style="color:#2563eb; font-weight:600;">Portion ${row.unit_name}</span> ${statusBadge}</div>
-            <div class="actions">
+          
+          <div class="row-summary" onclick="toggleDrawer('${row.invoice_id}', event)">
+            <div class="col-name">
+              <strong>👤 ${row.name}</strong> 
+              <span style="color:#64748b; font-weight:normal; font-size:13px;">(Portion ${row.unit_name})</span>
+              ${statusBadge}
+            </div>
+            <div class="col-due" style="color: ${remainingBalance <= 0 ? '#10b981' : '#ef4444'};">
+              ₹${remainingBalance.toLocaleString('en-IN')}
+            </div>
+            <div class="col-actions">
               <form action="/collect-invoice-payment/${row.invoice_id}" method="POST" style="margin:0; display:flex; gap:6px;">
                 <input type="hidden" name="selectedMonth" value="${selectedMonth}">
                 <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt (₹)" required>
                 <button type="submit" class="btn btn-success">Pay</button>
               </form>
-              <a href="/invoice/${row.invoice_id}" target="_blank" class="btn btn-info">📄 View Invoice</a>
+              <a href="/invoice/${row.invoice_id}" target="_blank" class="btn btn-info">📄 Invoice</a>
             </div>
           </div>
-          <div class="meta-grid">
-            <div>💼 <strong>Father's Name:</strong> ${row.father_name}</div>
-            <div>📞 <strong>Phone:</strong> ${row.phone}</div>
-            <div>🔒 <strong>Aadhaar:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${String(row.id_card_no).replace(/'/g, "\\'")}')">(Reveal)</span></div>
-            <div>💰 <strong>Security Deposit:</strong> ₹${Number(row.security_deposit).toLocaleString('en-IN')}</div>
-            <div>📐 <strong>Area:</strong> ${row.unit_area} Sqft</div>
-            <div>📊 <strong>Assessment:</strong> Total: ₹${targetInvoice.toLocaleString('en-IN')} (Rent: ₹${baseRent.toLocaleString('en-IN')} + Maint: ₹${maintenance.toLocaleString('en-IN')} + Rollover: ₹${arrears.toLocaleString('en-IN')})</div>
+          
+          <div id="drawer-${row.invoice_id}" class="row-drawer">
+            <h2 style="font-size:15px; text-transform:uppercase; color:#475569; margin-bottom:12px; letter-spacing:0.5px;">🔍 Background Specifications Directory</h2>
+            <div class="meta-grid">
+              <div>💼 <strong>Father's Full Name:</strong> ${row.father_name}</div>
+              <div>📞 <strong>Primary Phone:</strong> +91 ${row.phone}</div>
+              <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${String(row.id_card_no).replace(/'/g, "\\'")}')">(Reveal)</span></div>
+              <div>💰 <strong>Security Deposit Bound:</strong> ₹${Number(row.security_deposit).toLocaleString('en-IN')}</div>
+              <div>📐 <strong>Portion Square Area:</strong> ${row.unit_area} Sqft</div>
+              <div>📊 <strong>Statement Breakdown:</strong> Base Rent: ₹${baseRent.toLocaleString('en-IN')} | Maintenance: ₹${maintenance.toLocaleString('en-IN')}</div>
+            </div>
+            
+            ${alertHTML}
+            ${tagsHTML ? `<div class="charge-tag-list">${tagsHTML}</div>` : ''}
+            <div style="font-size:13px; margin-top:12px; font-weight:600; color:#10b981;">Gross Settled This Cycle: ₹${Number(row.amount_paid).toLocaleString('en-IN')}</div>
+            
+            ${repairFormHTML}
+            
+            <div class="history-box">
+              <span class="history-title">📜 Lifetime Account Transaction Timeline (All Dates Summary)</span>
+              ${masterAuditHTML || '<div style="font-size:11px; color:#94a3b8;">No lifetime payments registered on this account yet.</div>'}
+            </div>
           </div>
-          ${alertHTML}
-          ${tagsHTML ? `<div class="charge-tag-list">${tagsHTML}</div>` : ''}
-          <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${Number(row.amount_paid).toLocaleString('en-IN')}</div>
-          ${repairFormHTML}
-          <div class="history-box"><span class="history-title">📜 Month Payment Audit Timeline</span>${internalLogs || '<div style="font-size:11px; color:#94a3b8;">No transactions logged.</div>'}</div>
+          
         </li>
       `;
     });
@@ -356,22 +388,15 @@ router.get('/invoice/:invoiceId', async (req, res) => {
   }
 });
 
-// 9. Profile Record Management Page (Filters down to show only ACTIVE occupants)
+// 9. Profile Record Management Page
 router.get('/manage-profiles', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT tenants.*, units.unit_name, units.rent_amount, units.maintenance_amount, units.unit_area 
-      FROM tenants 
-      JOIN units ON tenants.unit_id = units.id 
-      WHERE tenants.is_active = TRUE 
-      ORDER BY units.unit_name ASC
-    `);
-    
+    const result = await pool.query('SELECT tenants.*, units.unit_name, units.rent_amount, units.maintenance_amount, units.unit_area FROM tenants JOIN units ON tenants.unit_id = units.id WHERE tenants.is_active = TRUE ORDER BY units.unit_name ASC');
     let rowsHTML = '';
     result.rows.forEach(t => {
       rowsHTML += `
         <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; justify-content:space-between; align-items:center; justify-content: space-between;">
             <div>
               <strong>👤 ${t.name}</strong> — <span style="color:#2563eb; font-weight:600;">Unit ${t.unit_name}</span> (${t.unit_area} Sqft)
               <div style="font-size:13px; color:#64748b; margin-top:4px;">Father: ${t.father_name} | Phone: +91 ${t.phone} | Rent: ₹${Number(t.rent_amount).toLocaleString('en-IN')}<br>Aadhaar: <span id="id-container-${t.id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${t.id}', '${String(t.id_card_no).replace(/'/g, "\\'")}')">(Reveal)</span></div>
@@ -393,22 +418,14 @@ router.get('/manage-profiles', async (req, res) => {
   }
 });
 
-// UPGRADED MOVE-OUT LOGIC ROUTER: Soft-archives the tenant instead of destroying rows
 router.post('/delete-tenant/:id/:unitId', async (req, res) => {
   try {
-    const tenantId = req.params.id;
-    const unitId = req.params.unitId;
-
-    // 1. Mark tenant as inactive and un-link them from the physical room layout asset
-    await pool.query('UPDATE tenants SET is_active = FALSE, unit_id = NULL WHERE id = $1', [tenantId]);
-    
-    // 2. Open the room asset container back up to vacancy instantly
-    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [unitId]);
-    
+    await pool.query('UPDATE tenants SET is_active = FALSE, unit_id = NULL WHERE id = $1', [req.params.id]);
+    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [req.params.unitId]);
     res.redirect('/manage-profiles');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Profile archiving move-out operations failed.");
+    res.status(500).send("Profile layout archive operations failed.");
   }
 });
 

@@ -13,7 +13,6 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
-  // 1. Permanent Tenant Directory
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -30,20 +29,18 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Monthly Invoices Table (Tracks month-by-month bills)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
       tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
-      billing_month TEXT NOT NULL, -- e.g., "Jun 2026"
+      billing_month TEXT NOT NULL,
       rent_charged NUMERIC DEFAULT 0,
       maintenance_charged NUMERIC DEFAULT 0,
       amount_paid NUMERIC DEFAULT 0,
-      UNIQUE(tenant_id, billing_month) -- Prevents duplicate bills for the same month
+      UNIQUE(tenant_id, billing_month)
     );
   `);
 
-  // 3. Payment Logs (Audit trail for individual transaction histories)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -111,9 +108,7 @@ const HTML_HEAD = `
   </head>
 `;
 
-// 1. Dashboard Landing (Register Tenants & Batch Invoice Trigger)
-app.get('/', async (req, res) => {
-  // Get current active month dynamically for the button label (e.g., "Jun 2026")
+app.get('/', (req, res) => {
   const currentMonthLabel = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
   
   res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
@@ -157,7 +152,6 @@ app.get('/', async (req, res) => {
   </div></body></html>`);
 });
 
-// 2. Add Tenant Profile
 app.post('/add-tenant', async (req, res) => {
   try {
     const { tenantName, fatherName, phone, altPhone, idCardNo, unitNumber, unitArea, securityDeposit, rentAmount, maintenanceAmount } = req.body;
@@ -172,15 +166,11 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// 3. ACTION ROUTE: Batch Generate Invoices for the Current Month
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const billingMonth = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
-    
-    // Fetch all active tenants
     const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
     
-    // Loop and generate an invoice row for each tenant if it doesn't already exist
     for (let tenant of tenantsResult.rows) {
       await pool.query(`
         INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid)
@@ -196,7 +186,6 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
-// 4. Collect Invoice Payment & Log History
 app.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
@@ -213,14 +202,11 @@ app.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
-// 5. Master Invoicing Ledger Directory
 app.get('/tenants', async (req, res) => {
   try {
-    // Default to displaying current month if no filter is chosen
     const currentMonthLabel = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
     const selectedMonth = req.query.month || currentMonthLabel;
 
-    // Financial calculations filtered by the active month view
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
     const statsOwed = await pool.query(`
       SELECT SUM(CASE WHEN (rent_charged + maintenance_charged) > amount_paid THEN (rent_charged + maintenance_charged) - amount_paid ELSE 0 END)
@@ -230,12 +216,10 @@ app.get('/tenants', async (req, res) => {
     const grossCollected = Number(statsCollected.rows[0].sum || 0);
     const grossOutstanding = Number(statsOwed.rows[0].sum || 0);
 
-    // Get list of all months we have invoices for to fill up a filter drop-down
     const monthsDropdownResult = await pool.query('SELECT DISTINCT billing_month FROM invoices');
     const availableMonths = monthsDropdownResult.rows.map(r => r.billing_month);
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
 
-    // SQL Join to pull tenant personal data alongside their invoice rules for the selected month
     const ledgerResult = await pool.query(`
       SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month,
              tenants.id AS tenant_id, tenants.name, tenants.unit, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.unit_area, tenants.security_deposit
@@ -260,12 +244,11 @@ app.get('/tenants', async (req, res) => {
       } else if (remainingBalance > 0) {
         statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalance.toLocaleString('en-IN')} Due)</span>`;
       } else if (remainingBalance < 0) {
-        statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN'})</span>`;
+        statusBadge = `<span class="badge badge-advance">🔵 Credit Advance (₹${Math.abs(remainingBalance).toLocaleString('en-IN')})</span>`;
       } else {
         statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
       }
 
-      // Generate Invoice/Receipt Button action block
       const receiptButton = `<a href="/invoice/${row.invoice_id}" target="_blank" class="btn btn-info">📄 View Invoice</a>`;
 
       const paymentForm = remainingBalance !== 0 ? `
@@ -322,7 +305,7 @@ app.get('/tenants', async (req, res) => {
       </h1>
       
       <div class="flex-stats">
-        <div class="stat-card stat-card-paid"><small>Total Collected (${selectedMonth})</small><h2>制造₹${grossCollected.toLocaleString('en-IN')}</h2></div>
+        <div class="stat-card stat-card-paid"><small>Total Collected (${selectedMonth})</small><h2>₹${grossCollected.toLocaleString('en-IN')}</h2></div>
         <div class="stat-card stat-card-unpaid"><small>Outstanding Dues (${selectedMonth})</small><h2>₹${grossOutstanding.toLocaleString('en-IN')}</h2></div>
       </div>
 
@@ -338,7 +321,6 @@ app.get('/tenants', async (req, res) => {
   }
 });
 
-// 6. NEW ROUTE: Generate Clean Printable Invoice/Receipt Statement
 app.get('/invoice/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;

@@ -13,7 +13,6 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
-  // 1. Core Tenants Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -31,7 +30,6 @@ async function initDatabase() {
     );
   `);
 
-  // 2. NEW: Individual Payment History Table (Linked to tenants via tenant_id)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -73,11 +71,13 @@ const HTML_HEAD = `
       .badge-paid { background: #d1fae5; color: #065f46; }
       .badge-partial { background: #ffedd5; color: #9a3412; }
       .badge-unpaid { background: #ffeeeb; color: #b91c1c; }
+      
+      /* New badge style for extra payments/advances */
+      .badge-advance { background: #e0f2fe; color: #0369a1; } 
+      
       .pay-input { width: 90px; padding: 6px; margin: 0; font-size: 13px; border-radius: 4px; border: 1px solid #cbd5e1; }
       .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 15px; font-size: 13px; color: #64748b; margin-top: 6px; }
       .reveal-link { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; font-size: 13px; }
-      
-      /* New History Box Styling */
       .history-box { margin-top: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; max-height: 120px; overflow-y: auto; width: 100%; box-sizing: border-box; }
       .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
       .history-item { font-size: 12px; color: #334155; padding: 3px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
@@ -98,7 +98,7 @@ const HTML_HEAD = `
   </head>
 `;
 
-// 1. Intake Dashboard View
+// 1. Intake Form View
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Property Management Dashboard</h1><div class="form-box"><h3>📋 Comprehensive Tenant Intake Form</h3><form action="/add-tenant" method="POST"><div class="form-grid"><div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div><div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div></div><div class="form-grid"><div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div><div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div></div><div class="form-grid"><div><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div><div><label>Unit Allocated</label><input type="text" name="unitNumber" placeholder="e.g. Flat 302" required></div></div><div class="form-grid"><div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div><div><label>Security Deposit Paid ($)</label><input type="number" name="securityDeposit" placeholder="e.g. 25000" required></div></div><div class="form-grid"><div><label>Monthly Base Rent ($)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div><div><label>Monthly Maintenance Charges ($)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div></div><button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button></form></div><div style="text-align: center;"><a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Tenant Master Directory & Ledgers</a></div></div></body></html>`);
 });
@@ -118,16 +118,16 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// 3. Collect Payment AND Log History Statement
+// 3. Collect Payment (Allows Overpayment)
 app.post('/collect-payment/:id', async (req, res) => {
   try {
     const tenantId = req.params.id;
     const paymentAmount = Number(req.body.paymentAmount || 0);
 
-    // Update main total pool
+    // Update main total pool (allows overpayment now)
     await pool.query('UPDATE tenants SET amount_paid = amount_paid + $1 WHERE id = $2', [paymentAmount, tenantId]);
 
-    // NEW: Insert a detailed audit footprint tracking amount and date
+    // Insert audit log
     await pool.query(
       'INSERT INTO payment_logs (tenant_id, amount_paid) VALUES ($1, $2)',
       [tenantId, paymentAmount]
@@ -152,11 +152,13 @@ app.post('/delete-tenant/:id', async (req, res) => {
   }
 });
 
-// 5. Master Ledger with Nested Audit Trail Loops
+// 5. Master Ledger with Credit Engine
 app.get('/tenants', async (req, res) => {
   try {
     const totalCollectedQuery = await pool.query("SELECT SUM(amount_paid) FROM tenants");
-    const totalOwedQuery = await pool.query("SELECT SUM((rent_amount + maintenance_amount) - amount_paid) FROM tenants");
+    
+    // Adjusted Global outstanding math: It counts what's still due across properties
+    const totalOwedQuery = await pool.query("SELECT SUM(CASE WHEN (rent_amount + maintenance_amount) > amount_paid THEN (rent_amount + maintenance_amount) - amount_paid ELSE 0 END) FROM tenants");
 
     const grossCollected = Number(totalCollectedQuery.rows[0].sum || 0);
     const grossOutstanding = Number(totalOwedQuery.rows[0].sum || 0);
@@ -164,7 +166,6 @@ app.get('/tenants', async (req, res) => {
     const result = await pool.query('SELECT * FROM tenants ORDER BY id DESC');
     const tenantsFromDb = result.rows;
 
-    // Grab ALL transaction statement rows from the database globally
     const logHistoryResult = await pool.query('SELECT * FROM payment_logs ORDER BY payment_date DESC');
     const globalLogs = logHistoryResult.rows;
 
@@ -174,34 +175,35 @@ app.get('/tenants', async (req, res) => {
       const maintenance = Number(tenant.maintenance_amount || 0);
       const currentPaid = Number(tenant.amount_paid || 0);
       const totalTargetInvoice = baseRent + maintenance;
+      
       const remainingBalanceOwed = totalTargetInvoice - currentPaid;
 
-      const clearIdString = String(tenant.id_card_no || '').replace(/'/g, "\\'");
-
+      // STATUS BADGE AND CREDIT DETECTION LOGIC
       let statusBadge = '';
       if (currentPaid === 0) {
         statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
       } else if (remainingBalanceOwed > 0) {
-        statusBadge = `<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()})</span>`;
+        statusBadge = `<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()} Due)</span>`;
+      } else if (remainingBalanceOwed < 0) {
+        // Tenant paid too much! Convert negative number to positive for user display
+        const creditBalance = Math.abs(remainingBalanceOwed);
+        statusBadge = `<span class="badge badge-advance">🔵 Advance Credit ($${creditBalance.toLocaleString()})</span>`;
       } else {
         statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
       }
 
-      const dynamicPaymentInput = remainingBalanceOwed > 0 
-        ? `
-          <form action="/collect-payment/${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
-            <input type="number" name="paymentAmount" class="pay-input" max="${remainingBalanceOwed}" placeholder="Amt" required>
-            <button type="submit" class="btn btn-success" style="padding: 6px 10px;">Pay</button>
-          </form>
-        `
-        : `<span style="color: #10b981; font-weight: 600; font-size: 13px;">Cleared</span>`;
+      // Input Form: Notice we removed the "max" constraint so you can log extra money freely
+      const dynamicPaymentInput = `
+        <form action="/collect-payment/${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
+          <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt ($)" required>
+          <button type="submit" class="btn btn-success" style="padding: 6px 10px;">Pay</button>
+        </form>
+      `;
 
-      // FILTER TRANSACTIONS: Grab history items belonging ONLY to this tenant
       let internalHistoryItems = '';
       const tenantLogs = globalLogs.filter(log => log.tenant_id === tenant.id);
       
       tenantLogs.forEach(log => {
-        // Format SQL raw timestamp into clean human-readable text
         const cleanDate = new Date(log.payment_date).toLocaleDateString('en-US', {
           month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
         });
@@ -260,6 +262,8 @@ app.get('/tenants', async (req, res) => {
     res.status(500).send("Error reading calculations.");
   }
 });
+
+app.use(express.json());
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);

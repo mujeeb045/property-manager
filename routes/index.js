@@ -1,5 +1,5 @@
 const express = require('express');
-const router = express.Router();
+const router = Router();
 const pool = require('../config/db');
 
 // View Component Assemblers Import
@@ -250,7 +250,7 @@ router.get('/tenants', async (req, res) => {
           </div>
           ${alertHTML}
           ${tagsHTML ? `<div class="charge-tag-list">${tagsHTML}</div>` : ''}
-          <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
+          <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${Number(row.amount_paid).toLocaleString('en-IN')}</div>
           <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
             <input type="hidden" name="selectedMonth" value="${selectedMonth}">
             <div style="flex:2;"><label style="color:#0369a1; font-size:11px;">🛠️ Log Work Now (Bills Next Month)</label><input type="text" name="itemDesc" placeholder="e.g. Plumbing Repair" required style="width:100%;"></div>

@@ -40,12 +40,19 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 2. Add Unit Layout Form Page
+// 2. Add Unit Layout Form Page (Upgraded with Delete Action Rows)
 router.get('/add-unit', async (req, res) => {
   try {
     const unitsListQuery = await pool.query('SELECT * FROM units ORDER BY unit_name ASC');
     let rowsHTML = '';
     unitsListQuery.rows.forEach(u => {
+      // Inline conditional rendering: Show a disabled notice if occupied, or a clickable form if vacant
+      const actionButton = u.is_occupied 
+        ? `<span style="font-size:12px; color:#94a3b8; font-style:italic;">Cannot Delete (Occupied)</span>`
+        : `<form action="/delete-unit/${u.id}" method="POST" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to permanently remove [${u.unit_name}] from your property assets database?');">
+             <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size:12px;">🗑️ Delete</button>
+           </form>`;
+
       rowsHTML += `
         <tr style="font-size:14px; border-bottom:1px solid #e2e8f0;">
           <td style="padding:10px; font-weight:600;">🏢 ${u.unit_name}</td>
@@ -53,6 +60,7 @@ router.get('/add-unit', async (req, res) => {
           <td style="padding:10px; font-weight:600;">₹${Number(u.rent_amount).toLocaleString('en-IN')}</td>
           <td style="padding:10px;">₹${Number(u.maintenance_amount).toLocaleString('en-IN')}</td>
           <td style="padding:10px;">${u.is_occupied ? '<span class="badge badge-unpaid">Occupied</span>' : '<span class="badge badge-paid">Vacant</span>'}</td>
+          <td style="padding:10px; text-align:right;">${actionButton}</td>
         </tr>
       `;
     });
@@ -71,6 +79,25 @@ router.post('/save-unit', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Portion save database collision error.");
+  }
+});
+
+// NEW BACKEND ROUTER ACTION: Safely removes vacant unit layout profiles from the DB
+router.post('/delete-unit/:unitId', async (req, res) => {
+  try {
+    const unitId = req.params.unitId;
+    
+    // Safety check: ensure the unit isn't occupied before running delete command
+    const checkQuery = await pool.query('SELECT is_occupied FROM units WHERE id = $1', [unitId]);
+    if (checkQuery.rows.length > 0 && checkQuery.rows[0].is_occupied) {
+      return res.status(400).send("Operation Rejected: You cannot delete a unit that currently houses an active tenant record.");
+    }
+
+    await pool.query('DELETE FROM units WHERE id = $1', [unitId]);
+    res.redirect('/add-unit');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error wiping property portion record asset.");
   }
 });
 

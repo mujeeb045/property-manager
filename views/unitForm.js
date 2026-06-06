@@ -29,10 +29,11 @@ function renderUnitForm(unitsRowsHTML) {
           <th style="padding:12px;">Base Rent</th>
           <th style="padding:12px;">Maintenance</th>
           <th style="padding:12px;">Status</th>
+          <th style="padding:12px; text-align:right;">Actions</th>
         </tr>
       </thead>
       <tbody>
-        ${unitsRowsHTML || '<tr><td colspan="5" style="padding:20px; text-align:center; color:#64748b;">No portions found. Use the form above to add an asset.</td></tr>'}
+        ${unitsRowsHTML || '<tr><td colspan="6" style="padding:20px; text-align:center; color:#64748b;">No portions found. Use the form above to add an asset.</td></tr>'}
       </tbody>
     </table>
   `;

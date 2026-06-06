@@ -471,3 +471,51 @@ router.post('/delete-tenant/:id/:unitId', async (req, res) => {
 });
 
 module.exports = router;
+
+const ExcelJS = require('exceljs');
+
+router.get('/export-ledger/:month', async (req, res) => {
+  try {
+    const selectedMonth = req.params.month;
+    const ledger = await pool.query(`
+      SELECT tenants.name, units.unit_name, invoices.rent_charged, invoices.maintenance_charged, 
+             invoices.arrears_brought_forward, invoices.amount_paid, units.unit_area
+      FROM invoices 
+      JOIN tenants ON invoices.tenant_id = tenants.id 
+      JOIN units ON tenants.unit_id = units.id 
+      WHERE invoices.billing_month = $1 
+      ORDER BY units.unit_name ASC
+    `, [selectedMonth]);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Ledger');
+
+    worksheet.columns = [
+      { header: 'Tenant Name', key: 'name', width: 25 },
+      { header: 'Unit Name', key: 'unit_name', width: 15 },
+      { header: 'Base Rent', key: 'rent', width: 15 },
+      { header: 'Maintenance', key: 'maint', width: 15 },
+      { header: 'Arrears/Rollover', key: 'arrears', width: 15 },
+      { header: 'Amount Paid', key: 'paid', width: 15 }
+    ];
+
+    ledger.rows.forEach(row => {
+      worksheet.addRow({
+        name: row.name,
+        unit_name: row.unit_name,
+        rent: Number(row.rent_charged),
+        maint: Number(row.maintenance_charged),
+        arrears: Number(row.arrears_brought_forward),
+        paid: Number(row.amount_paid)
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Ledger_${selectedMonth}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error generating Excel file.");
+  }
+});

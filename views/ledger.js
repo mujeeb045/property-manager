@@ -4,6 +4,7 @@ function renderLedgerView(selectedMonth, grossCollected, grossOutstanding, dropd
       <span>Monthly Financial Ledgers</span>
       <div class="top-nav-box">
         <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px; background:#f8fafc;">🏠 Go to Dashboard</a>
+        <a href="/export-ledger/${encodeURIComponent(selectedMonth)}" class="btn btn-primary" style="padding:6px 14px; font-size:13px; background:#059669;">📊 Export Excel</a>
         <form method="GET" action="/tenants" style="margin:0; display:flex; align-items:center; gap:8px;">
           <select name="month" onchange="this.form.submit()" style="margin:0; padding:6px 12px; width:130px; font-size:13px;">${dropdownOptions}</select>
         </form>

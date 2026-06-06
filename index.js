@@ -29,7 +29,6 @@ async function initDatabase() {
     );
   `);
 
-  // Upgrade the invoices table to include ad-hoc expense metrics
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -42,11 +41,14 @@ async function initDatabase() {
     );
   `);
 
-  // Add the custom charge metrics to invoices if they do not exist
+  // NEW TABLE: Stores unlimited custom ad-hoc charges itemized per invoice
   await pool.query(`
-    ALTER TABLE invoices 
-    ADD COLUMN IF NOT EXISTS extra_charges NUMERIC DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS extra_charges_desc TEXT DEFAULT '';
+    CREATE TABLE IF NOT EXISTS invoice_extra_items (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
+      item_desc TEXT NOT NULL,
+      item_amount NUMERIC NOT NULL
+    );
   `);
 
   await pool.query(`
@@ -104,9 +106,13 @@ const HTML_HEAD = `
       .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
       .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
       
-      /* Auxiliary maintenance modifier form block style */
       .extra-charge-form { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
+      
+      /* New Itemized layout block list */
+      .charge-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .charge-tag { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
+      .charge-tag-delete { color: #ef4444; font-weight: bold; text-decoration: none; font-size: 14px; cursor: pointer; }
     </style>
     <script>
       function toggleReveal(id, actualValue) {
@@ -201,8 +207,8 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     
     for (let tenant of tenantsResult.rows) {
       await pool.query(`
-        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid, extra_charges, extra_charges_desc)
-        VALUES ($1, $2, $3, $4, 0, 0, '')
+        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid)
+        VALUES ($1, $2, $3, $4, 0)
         ON CONFLICT (tenant_id, billing_month) DO NOTHING
       `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount]);
     }
@@ -214,24 +220,38 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
-// NEW ACTION ROUTE: Update Ad-hoc Maintenance Details on Invoice Row
-app.post('/update-extra-charges/:invoiceId', async (req, res) => {
+// NEW ACTION ROUTE: Insert a fresh itemized ad-hoc charge into the list
+app.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
-    const extraCharges = Number(req.body.extraCharges || 0);
-    const extraChargesDesc = req.body.extraChargesDesc || '';
+    const itemDesc = req.body.itemDesc || 'General Maintenance';
+    const itemAmount = Number(req.body.itemAmount || 0);
     const selectedMonth = req.body.selectedMonth;
 
     await pool.query(`
-      UPDATE invoices 
-      SET extra_charges = $1, extra_charges_desc = $2 
-      WHERE id = $3
-    `, [extraCharges, extraChargesDesc, invoiceId]);
+      INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount)
+      VALUES ($1, $2, $3)
+    `, [invoiceId, itemDesc, itemAmount]);
 
     res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error mapping maintenance expenses.");
+    res.status(500).send("Error appending itemized expense.");
+  }
+});
+
+// NEW ACTION ROUTE: Remove a specific itemized ad-hoc charge line
+app.post('/delete-extra-item/:itemId', async (req, res) => {
+  try {
+    const itemId = req.params.itemId;
+    const selectedMonth = req.body.selectedMonth;
+
+    await pool.query('DELETE FROM invoice_extra_items WHERE id = $1', [itemId]);
+
+    res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error removing itemized entry.");
   }
 });
 
@@ -256,12 +276,24 @@ app.get('/tenants', async (req, res) => {
     const currentMonthLabel = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
     const selectedMonth = req.query.month || currentMonthLabel;
 
+    // Pull ALL extra items globally to distribute down to cards via filtering
+    const allExtrasQuery = await pool.query(`
+      SELECT invoice_extra_items.* FROM invoice_extra_items
+      JOIN invoices ON invoice_extra_items.invoice_id = invoices.id
+      WHERE invoices.billing_month = $1
+    `, [selectedMonth]);
+    const globalExtras = allExtrasQuery.rows;
+
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
     
-    // Updated Global Math calculation includes extra_charges fields natively
+    // Complex SQL Math dynamically aggregates base billing + the dynamic sum of itemized extras per tenant
     const statsOwed = await pool.query(`
-      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(extra_charges, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(extra_charges, 0)) - amount_paid ELSE 0 END)
-      FROM invoices WHERE billing_month = $1
+      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
+      FROM invoices
+      LEFT JOIN (
+        SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items GROUP BY invoice_id
+      ) extras ON invoices.id = extras.invoice_id
+      WHERE invoices.billing_month = $1
     `, [selectedMonth]);
 
     const grossCollected = Number(statsCollected.rows[0].sum || 0);
@@ -272,7 +304,7 @@ app.get('/tenants', async (req, res) => {
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
 
     const ledgerResult = await pool.query(`
-      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.extra_charges, invoices.extra_charges_desc,
+      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month,
              tenants.id AS tenant_id, tenants.name, tenants.unit, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.unit_area, tenants.security_deposit
       FROM invoices
       JOIN tenants ON invoices.tenant_id = tenants.id
@@ -285,19 +317,20 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     ledgerResult.rows.forEach(row => {
+      // Filter out itemized extras belonging specifically to this row card
+      const myExtras = globalExtras.filter(item => item.invoice_id === row.invoice_id);
+      const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
+
       const baseRent = Number(row.rent_charged || 0);
       const maintenance = Number(row.maintenance_charged || 0);
-      const extraCharges = Number(row.extra_charges || 0);
       
-      // Dynamic operational target formula update
-      const targetInvoice = baseRent + maintenance + extraCharges;
+      const targetInvoice = baseRent + maintenance + sumOfExtras;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
       const clearIdString = String(row.id_card_no || '').replace(/'/g, "\\'");
 
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
       const fmtRent = baseRent.toLocaleString('en-IN');
       const fmtMaint = maintenance.toLocaleString('en-IN');
-      const fmtExtra = extraCharges.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
@@ -322,21 +355,35 @@ app.get('/tenants', async (req, res) => {
         </form>
       `;
 
-      // NEW FORM INLINE: Allows adding/editing ad-hoc charges and descriptions directly on the row card
-      const extraChargesForm = `
-        <form action="/update-extra-charges/${row.invoice_id}" method="POST" class="extra-charge-form">
+      // Form to add a brand new itemized row to this specific tenant's invoice
+      const extraItemsInputForm = `
+        <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
           <input type="hidden" name="selectedMonth" value="${selectedMonth}">
           <div style="flex: 2;">
-            <label style="font-size:11px; margin-bottom:2px;">Ad-hoc Work Description</label>
-            <input type="text" name="extraChargesDesc" value="${row.extra_charges_desc || ''}" placeholder="e.g., Plumbing Repair" required style="width:100%;">
+            <label style="font-size:11px; margin-bottom:2px;">➕ Add Itemized Maintenance Work</label>
+            <input type="text" name="itemDesc" placeholder="e.g., Bathroom Plumbing work" required style="width:100%;">
           </div>
           <div style="flex: 1;">
-            <label style="font-size:11px; margin-bottom:2px;">Amount (₹)</label>
-            <input type="number" name="extraCharges" value="${extraCharges || ''}" placeholder="₹ Amount" required style="width:100%;">
+            <label style="font-size:11px; margin-bottom:2px;">Cost (₹)</label>
+            <input type="number" name="itemAmount" placeholder="₹ Price" required style="width:100%;">
           </div>
-          <button type="submit" class="btn btn-secondary" style="padding: 7px 12px; font-size:12px; background:#e2e8f0;">Update Bill</button>
+          <button type="submit" class="btn btn-primary" style="padding: 7px 12px; font-size:12px;">Add Charge</button>
         </form>
       `;
+
+      // Build out the list of visual tags displaying what's been added so far
+      let chargeTagsHTML = '';
+      myExtras.forEach(item => {
+        chargeTagsHTML += `
+          <div class="charge-tag">
+            🛠️ <strong>${item.item_desc}:</strong> ₹${Number(item.item_amount).toLocaleString('en-IN')}
+            <form action="/delete-extra-item/${item.id}" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Remove this charge item?');">
+              <input type="hidden" name="selectedMonth" value="${selectedMonth}">
+              <button type="submit" class="charge-tag-delete" style="background:none; border:none; padding:0; line-height:1;">&times;</button>
+            </form>
+          </div>
+        `;
+      });
 
       let internalLogs = '';
       globalLogs.filter(l => l.invoice_id === row.invoice_id).forEach(l => {
@@ -358,12 +405,14 @@ app.get('/tenants', async (req, res) => {
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
             <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Extra: ₹${fmtExtra})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Added Extras: ₹${sumOfExtras.toLocaleString('en-IN')})</div>
           </div>
-          ${row.extra_charges_desc ? `<div style="font-size:12px; margin-top:6px; color:#475569; background:#f1f5f9; padding:6px 10px; border-radius:4px;">🛠️ <strong>Ad-hoc Charge Note:</strong> ${row.extra_charges_desc} (+₹${fmtExtra})</div>` : ''}
+          
+          ${chargeTagsHTML ? `<div class="charge-tag-list">${chargeTagsHTML}</div>` : ''}
+          
           <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
           
-          ${extraChargesForm}
+          ${extraItemsInputForm}
 
           <div class="history-box">
             <span class="history-title">📜 Month Payment Audit Timeline</span>
@@ -410,7 +459,6 @@ app.get('/tenants', async (req, res) => {
   }
 });
 
-// Upgraded printable Invoice template to dynamically render custom charge line items
 app.get('/invoice/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
@@ -422,23 +470,25 @@ app.get('/invoice/:invoiceId', async (req, res) => {
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
     
+    // Fetch individual itemized lines for this printable statement invoice
+    const extrasQuery = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id = $1', [invoiceId]);
+    const myExtras = extrasQuery.rows;
+    const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
+
     const baseRent = Number(inv.rent_charged || 0);
     const maintenance = Number(inv.maintenance_charged || 0);
-    const extraCharges = Number(inv.extra_charges || 0);
-    
-    const totalCharged = baseRent + maintenance + extraCharges;
+    const totalCharged = baseRent + maintenance + sumOfExtras;
     const balance = totalCharged - Number(inv.amount_paid);
 
-    // Dynamic line item generation block for the invoice template
-    let extraChargeRowHTML = '';
-    if (extraCharges > 0) {
-      extraChargeRowHTML = `
+    let itemizedRowsHTML = '';
+    myExtras.forEach(item => {
+      itemizedRowsHTML += `
         <tr>
-          <td>Ad-hoc Charges: ${inv.extra_charges_desc || 'General Maintenance Upkeep Work'}</td>
-          <td style="text-align: right;">₹${extraCharges.toLocaleString('en-IN')}</td>
+          <td>🛠️ Maintenance: ${item.item_desc}</td>
+          <td style="text-align: right;">₹${Number(item.item_amount).toLocaleString('en-IN')}</td>
         </tr>
       `;
-    }
+    });
 
     res.send(`
       <!DOCTYPE html>
@@ -498,7 +548,7 @@ app.get('/invoice/:invoiceId', async (req, res) => {
                 <td>Common Area Maintenance Expenses</td>
                 <td style="text-align: right;">₹${maintenance.toLocaleString('en-IN')}</td>
               </tr>
-              ${extraChargeRowHTML}
+              ${itemizedRowsHTML}
             </tbody>
           </table>
 

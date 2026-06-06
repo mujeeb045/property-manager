@@ -13,19 +13,29 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
+  // 1. Permanent Portions / Units Asset Inventory Table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS units (
+      id SERIAL PRIMARY KEY,
+      unit_name TEXT UNIQUE NOT NULL, -- e.g., "Flat 101", "Portion A"
+      unit_area NUMERIC DEFAULT 0,
+      rent_amount NUMERIC DEFAULT 0,
+      maintenance_amount NUMERIC DEFAULT 0,
+      is_occupied BOOLEAN DEFAULT FALSE
+    );
+  `);
+
+  // 2. Permanent Tenant Profiles (Linked directly to a portion asset record)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
+      unit_id INTEGER UNIQUE REFERENCES units(id) ON DELETE SET NULL, -- One tenant per portion layout rule
       name TEXT NOT NULL,
       father_name TEXT,
       phone TEXT,
       alt_phone TEXT,
       id_card_no TEXT,
-      unit TEXT NOT NULL,
-      unit_area NUMERIC DEFAULT 0,
-      security_deposit NUMERIC DEFAULT 0,
-      rent_amount NUMERIC DEFAULT 0,
-      maintenance_amount NUMERIC DEFAULT 0
+      security_deposit NUMERIC DEFAULT 0
     );
   `);
 
@@ -61,7 +71,7 @@ async function initDatabase() {
     );
   `);
 }
-initDatabase().catch(err => console.error("Database setup failed:", err));
+initDatabase().catch(err => console.error("Database asset registry failed to sync:", err));
 
 const PREVIOUS_MONTH_MAP = {
   "Jan": "Dec", "Feb": "Jan", "Mar": "Feb", "Apr": "Mar", "May": "Apr", "Jun": "May",
@@ -76,8 +86,8 @@ const HTML_HEAD = `
       body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 40px; display: flex; justify-content: center; }
       .container { width: 100%; max-width: 950px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); }
       h1 { color: #0f172a; margin-top: 0; font-size: 26px; font-weight: 700; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
-      h2 { color: #1e293b; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 20px; }
-      h3 { color: #334155; margin-top: 0; margin-bottom: 20px; font-size: 18px; }
+      h2 { color: #1e293b; font-size: 19px; font-weight: 600; margin-top: 0; margin-bottom: 15px; }
+      h3 { color: #475569; margin-top: 0; margin-bottom: 20px; font-size: 16px; font-weight: 500; }
       label { font-weight: 600; font-size: 13px; color: #475569; display: block; margin-bottom: 6px; }
       input, select { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; margin-bottom: 14px; font-size: 14px; background: white; }
       .form-grid { display: flex; gap: 16px; margin-bottom: 4px; }
@@ -90,22 +100,25 @@ const HTML_HEAD = `
       .btn-danger { background: #ef4444; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; }
       .btn-info { background: #0284c7; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; text-decoration: none; }
       
-      /* Hub Menu Navigation Buttons Layout Grid */
-      .hub-menu-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 20px; }
-      .hub-btn { display: flex; align-items: center; justify-content: space-between; padding: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #0f172a; font-weight: 600; font-size: 16px; transition: all 0.2s ease; }
-      .hub-btn:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
-      .hub-icon-wrap { font-size: 24px; display: flex; align-items: center; gap: 14px; }
+      .hub-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+      .hub-btn { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #0f172a; font-weight: 600; font-size: 15px; }
+      .hub-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+      .hub-icon-wrap { display: flex; align-items: center; gap: 12px; }
       .hub-arrow { color: #64748b; font-size: 18px; }
 
-      .flex-stats { display: flex; gap: 20px; margin-bottom: 30px; }
-      .stat-card { flex: 1; padding: 20px; border-radius: 8px; border-left: 4px solid #cbd5e1; }
-      .stat-card-paid { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
-      .stat-card-unpaid { background: #fef2f2; border-left-color: #ef4444; color: #991b1b; }
+      .flex-stats { display: flex; gap: 16px; margin-bottom: 25px; }
+      .stat-card { flex: 1; padding: 18px 20px; border-radius: 8px; border-left: 4px solid #cbd5e1; }
+      .stat-card-occupied { background: #fff1f2; border-left-color: #f43f5e; color: #9f1239; }
+      .stat-card-vacant { background: #f0fdf4; border-left-color: #22c55e; color: #166534; }
+      .stat-card-total { background: #f8fafc; border-left-color: #64748b; color: #334155; }
+
       .tenant-list { list-style: none; padding: 0; margin: 0; }
       .tenant-item { display: flex; flex-direction: column; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; background: #ffffff; }
       .item-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px; margin-bottom: 12px; }
       .actions { display: flex; align-items: center; gap: 8px; }
       .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+      .badge-occupied { background: #ffe4e6; color: #9f1239; }
+      .badge-vacant { background: #d1fae5; color: #065f46; }
       .badge-paid { background: #d1fae5; color: #065f46; }
       .badge-partial { background: #ffedd5; color: #9a3412; }
       .badge-unpaid { background: #ffeeeb; color: #b91c1c; }
@@ -120,14 +133,11 @@ const HTML_HEAD = `
       .search-box { position: relative; margin-bottom: 20px; }
       .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
       .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
-      
       .extra-charge-form { background: #e0f2fe; border: 1px solid #bae6fd; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
-      
       .charge-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .charge-tag { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
       .charge-tag-delete { color: #ef4444; font-weight: bold; border: none; background: none; padding: 0; font-size: 14px; cursor: pointer; }
-      
       .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 20px; border: none; }
       .batch-billing-panel div { display: flex; flex-direction: column; gap: 4px; }
       .batch-billing-panel select, .batch-billing-panel input { margin-bottom: 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; border: none; width: auto; }
@@ -144,7 +154,6 @@ const HTML_HEAD = `
           element.style.color = '#64748b';
         }
       }
-
       function filterTenants() {
         const query = document.getElementById('tenantSearch').value.toLowerCase();
         const items = document.getElementsByClassName('tenant-item');
@@ -157,162 +166,246 @@ const HTML_HEAD = `
           }
         }
       }
-
       function confirmBatchGeneration() {
         const selectedMonth = document.getElementById('targetMonth').value;
         const selectedYear = document.getElementById('targetYear').value;
-        const targetString = selectedMonth + ' ' + selectedYear;
-        return confirm('⚠️ Are you sure you want to generate bills for [' + targetString + ']? Both unpaid arrears AND advance credits will automatically carry forward.');
+        return confirm('⚠️ Are you sure you want to generate bills for ' + selectedMonth + ' ' + selectedYear + '? Outstanding dues and allocations will align.');
       }
     </script>
   </head>
 `;
 
-// 1. BRAND NEW ROUTE: Simple Central Dashboard Landing Hub
-app.get('/', (req, res) => {
-  const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
-  const currentYear = nowIST.getFullYear();
-
-  const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  let monthOptionsHTML = '';
-  monthArray.forEach(m => {
-    monthOptionsHTML += `<option value="${m}" ${m === currentMonthShort ? 'selected' : ''}>${m}</option>`;
-  });
-
-  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
-    <h1>🏠 Property Management Control Panel</h1>
-    
-    <div style="margin-top:25px; border-bottom:1px solid #f1f5f9; padding-bottom:15px;">
-      <h2>⚡ Monthly Billing Generation Engine</h2>
-      <form action="/generate-monthly-invoices" method="POST" onsubmit="return confirmBatchGeneration();" class="batch-billing-panel">
-        <div style="flex:1;">
-          <label style="color:#cbd5e1;">Select Month Cycle</label>
-          <select id="targetMonth" name="targetMonth">${monthOptionsHTML}</select>
-        </div>
-        <div style="flex:1;">
-          <label style="color:#cbd5e1;">Select Year</label>
-          <input type="number" id="targetYear" name="targetYear" value="${currentYear}" min="2020" max="2100" required>
-        </div>
-        <div>
-          <button type="submit" class="btn btn-primary" style="background:#10b981; padding:9px 20px;">Generate Monthly Bills</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="hub-menu-grid">
-      <a href="/tenants" class="hub-btn">
-        <span class="hub-icon-wrap">📂 <span>📂 Access Monthly Billing Ledgers & Invoices</span></span>
-        <span class="hub-arrow">→</span>
-      </a>
-      
-      <a href="/register-tenant" class="hub-btn">
-        <span class="hub-icon-wrap">➕ <span>➕ Add / Register a New Tenant Profile</span></span>
-        <span class="hub-arrow">→</span>
-      </a>
-      
-      <a href="/manage-profiles" class="hub-btn">
-        <span class="hub-icon-wrap">🗑️ <span>🗑️ Remove / Manage Permanent Tenant Records</span></span>
-        <span class="hub-arrow">→</span>
-      </a>
-    </div>
-  </div></body></html>`);
-});
-
-// 2. NEW ROUTE: Dedicated Clean Registration View Page
-app.get('/register-tenant', (req, res) => {
-  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
-    <h1>
-      <span>📋 Register New Tenant Profile</span>
-      <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
-    </h1>
-    
-    <div class="form-box" style="margin-top:25px; background:white; border-color:#cbd5e1;">
-      <form action="/add-tenant" method="POST">
-        <div class="form-grid">
-          <div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div>
-          <div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div>
-        </div>
-        <div class="form-grid">
-          <div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div>
-          <div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div>
-        </div>
-        <div class="form-grid">
-          <div><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div>
-          <div><label>Unit Allocated</label><input type="text" name="unitNumber" placeholder="e.g. Flat 302" required></div>
-        </div>
-        <div class="form-grid">
-          <div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div>
-          <div><label>Security Deposit Paid (₹)</label><input type="number" name="securityDeposit" placeholder="e.g. 50000" required></div>
-        </div>
-        <div class="form-grid">
-          <div><label>Monthly Base Rent (₹)</label><input type="number" name="rentAmount" placeholder="e.g. 19000" required></div>
-          <div><label>Monthly Maintenance Charges (₹)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; padding:14px;">Register Profile & Open Master Account</button>
-      </form>
-    </div>
-  </div></body></html>`);
-});
-
-// 3. NEW ROUTE: Dedicated Clean Removal/Permanent Record Manager View Page
-app.get('/manage-profiles', async (req, res) => {
+// 1. Control Panel Hub Home (Displays Asset Availability Metrics Natively)
+app.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM tenants ORDER BY unit ASC');
-    const tenants = result.rows;
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
+    const currentYear = nowIST.getFullYear();
 
-    let rowsHTML = '';
-    tenants.forEach(t => {
-      const clearIdString = String(t.id_card_no || '').replace(/'/g, "\\'");
-      rowsHTML += `
-        <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
-          <div style="display:flex; justify-content:between; align-items:center; width:100%; justify-content: space-between;">
-            <div>
-              <strong style="font-size:16px; color:#0f172a;">👤 ${t.name}</strong> — 
-              <span style="color:#2563eb; font-weight:600;">Unit ${t.unit}</span>
-              <div style="font-size:13px; color:#64748b; margin-top:4px;">
-                Father: ${t.father_name || 'N/A'} | Phone: +91 ${t.phone} | Aadhaar: <span id="id-container-${t.id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${t.id}', '${clearIdString}')">(Reveal)</span>
-              </div>
-            </div>
-            <form action="/delete-tenant/${t.id}" method="POST" style="margin:0;" onsubmit="return confirm('🚨 DANGER: Are you completely sure this tenant moved out? This will permanently delete their historical profile and all associated invoices.');">
-              <button type="submit" class="btn btn-danger" style="padding:8px 14px; font-size:13px;">🗑️ Delete Record</button>
-            </form>
+    // Fetch live asset vacancy status metrics counts
+    const countsQuery = await pool.query(`
+      SELECT 
+        COUNT(*) as total_units,
+        COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units,
+        COUNT(CASE WHEN is_occupied = FALSE THEN 1 END) as vacant_units
+      FROM units;
+    `);
+    const stats = countsQuery.rows[0];
+
+    const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let monthOptionsHTML = '';
+    monthArray.forEach(m => {
+      monthOptionsHTML += `<option value="${m}" ${m === currentMonthShort ? 'selected' : ''}>${m}</option>`;
+    });
+
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
+      <h1>🏠 Property Management Asset Hub</h1>
+      
+      <div class="flex-stats" style="margin-top: 20px;">
+        <div class="stat-card stat-card-total"><small>Total Portions Inventory</small><h2>${stats.total_units || 0} Units</h2></div>
+        <div class="stat-card stat-card-occupied"><small>🔴 Occupied Portions</small><h2>${stats.occupied_units || 0} Occupied</h2></div>
+        <div class="stat-card stat-card-vacant"><small>🟢 Vacant / Available</small><h2>${stats.vacant_units || 0} Vacant</h2></div>
+      </div>
+      
+      <div style="border-bottom:1px solid #f1f5f9; padding-bottom:15px;">
+        <h2>⚡ Monthly Billing Cycle Engine</h2>
+        <form action="/generate-monthly-invoices" method="POST" onsubmit="return confirmBatchGeneration();" class="batch-billing-panel">
+          <div style="flex:1;">
+            <label style="color:#cbd5e1;">Select Month Cycle</label>
+            <select id="targetMonth" name="targetMonth">${monthOptionsHTML}</select>
           </div>
-        </li>
+          <div style="flex:1;">
+            <label style="color:#cbd5e1;">Select Year</label>
+            <input type="number" id="targetYear" name="targetYear" value="${currentYear}" min="2020" max="2100" required>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary" style="background:#10b981; padding:9px 20px;">Generate Monthly Bills</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="hub-menu-grid">
+        <a href="/tenants" class="hub-btn">
+          <span class="hub-icon-wrap">📂 <span>Access Billing Ledgers & Invoices</span></span>
+          <span class="hub-arrow">→</span>
+        </a>
+        <a href="/add-unit" class="hub-btn" style="background: #fdf8f6;">
+          <span class="hub-icon-wrap">🏢 <span>Add / Configure Property Portions</span></span>
+          <span class="hub-arrow">→</span>
+        </a>
+        <a href="/register-tenant" class="hub-btn">
+          <span class="hub-icon-wrap">👤 <span>Allocate Vacant Unit to Tenant</span></span>
+          <span class="hub-arrow">→</span>
+        </a>
+        <a href="/manage-profiles" class="hub-btn">
+          <span class="hub-icon-wrap">🗑️ <span>Manage / Remove Tenant Profiles</span></span>
+          <span class="hub-arrow">→</span>
+        </a>
+      </div>
+    </div></body></html>`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error reading dashboard stats.");
+  }
+});
+
+// 2. NEW ROUTE: Form view page to add a new physical portion asset rule
+app.get('/add-unit', async (req, res) => {
+  try {
+    const unitsListQuery = await pool.query('SELECT * FROM units ORDER BY unit_name ASC');
+    let unitsRowsHTML = '';
+    
+    unitsListQuery.rows.forEach(u => {
+      unitsRowsHTML += `
+        <tr style="font-size:14px; border-bottom:1px solid #e2e8f0;">
+          <td style="padding:10px; font-weight:600; color:#0f172a;">🏢 ${u.unit_name}</td>
+          <td style="padding:10px;">${u.unit_area} Sq. Ft.</td>
+          <td style="padding:10px; font-weight:600; color:#0f172a;">₹${Number(u.rent_amount).toLocaleString('en-IN')}</td>
+          <td style="padding:10px;">₹${Number(u.maintenance_amount).toLocaleString('en-IN')}</td>
+          <td style="padding:10px;">
+            ${u.is_occupied ? '<span class="badge badge-unpaid" style="background:#ffe4e6; color:#9f1239;">Occupied</span>' : '<span class="badge badge-paid" style="background:#d1fae5; color:#065f46;">Vacant</span>'}
+          </td>
+        </tr>
       `;
     });
 
     res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
       <h1>
-        <span>📋 Permanent Tenant Directory Management</span>
+        <span>🏢 Configure Property Portions / Units</span>
         <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
       </h1>
-      <h3 style="color:#64748b; margin-top:6px; font-weight:normal;">Below is the master list of all active profiles. Removing a tenant here clears them completely from future ledger operations.</h3>
       
-      <ul class="tenant-list" style="margin-top:20px;">
-        ${rowsHTML || '<li class="tenant-item" style="color:#64748b; text-align:center; padding:30px;">No registered profiles found in database. Go back and click "Add a New Tenant".</li>'}
-      </ul>
+      <div class="form-box" style="margin-top:20px; background:#f8fafc;">
+        <h3>Add a New Portion Asset</h3>
+        <form action="/save-unit" method="POST">
+          <div class="form-grid">
+            <div><label>Portion / Unit Name</label><input type="text" name="unitName" placeholder="e.g. Flat 101, Portion A" required></div>
+            <div><label>Portion Area Size (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1200" required></div>
+          </div>
+          <div class="form-grid">
+            <div><label>Standard Monthly Rent (₹)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div>
+            <div><label>Standard Monthly Maintenance (₹)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Save Unit Layout to Directory</button>
+        </form>
+      </div>
+
+      <h2>Master Portions Inventory Registry</h2>
+      <table style="width:100%; border-collapse:collapse; margin-top:15px; text-align:left;">
+        <thead>
+          <tr style="background:#1e293b; color:white; font-size:13px; text-transform:uppercase;">
+            <th style="padding:12px;">Portion Name</th>
+            <th style="padding:12px;">Size</th>
+            <th style="padding:12px;">Base Rent</th>
+            <th style="padding:12px;">Maintenance</th>
+            <th style="padding:12px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${unitsRowsHTML || '<tr><td colspan="5" style="padding:20px; text-align:center; color:#64748b;">No configured portions found. Use the form above to add your first property unit asset.</td></tr>'}
+        </tbody>
+      </table>
     </div></body></html>`);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error reading master directory schema.");
+    res.status(500).send("Error compiling asset configurations.");
   }
 });
 
-app.post('/add-tenant', async (req, res) => {
+// Action post handling route to insert a portion record
+app.post('/save-unit', async (req, res) => {
   try {
-    const { tenantName, fatherName, phone, altPhone, idCardNo, unitNumber, unitArea, securityDeposit, rentAmount, maintenanceAmount } = req.body;
-    await pool.query(
-      'INSERT INTO tenants (name, father_name, phone, alt_phone, id_card_no, unit, unit_area, security_deposit, rent_amount, maintenance_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-      [tenantName, fatherName, phone, altPhone || 'N/A', idCardNo, unitNumber, unitArea || 0, securityDeposit || 0, rentAmount || 0, maintenanceAmount || 0]
-    );
-    res.redirect('/tenants');
+    const { unitName, unitArea, rentAmount, maintenanceAmount } = req.body;
+    await pool.query(`
+      INSERT INTO units (unit_name, unit_area, rent_amount, maintenance_amount, is_occupied)
+      VALUES ($1, $2, $3, $4, FALSE)
+      ON CONFLICT (unit_name) DO UPDATE 
+      SET unit_area = $2, rent_amount = $3, maintenance_amount = $4
+    `, [unitName, unitArea || 0, rentAmount || 0, maintenanceAmount || 0]);
+    res.redirect('/add-unit');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error saving tenant profile.");
+    res.status(500).send("Error registering portion rules.");
   }
 });
 
+// 3. Dedicated Tenant Allocation Intake View Page (Pulls Vacant Dropdowns Dynamically)
+app.get('/register-tenant', async (req, res) => {
+  try {
+    // Select ONLY vacant portions to assign to the newcomer profile
+    const vacantUnitsQuery = await pool.query('SELECT id, unit_name, rent_amount, maintenance_amount, unit_area FROM units WHERE is_occupied = FALSE ORDER BY unit_name ASC');
+    let dropdownOptionsHTML = '';
+    
+    vacantUnitsQuery.rows.forEach(u => {
+      dropdownOptionsHTML += `<option value="${u.id}">${u.unit_name} — (Rent: ₹${Number(u.rent_amount).toLocaleString('en-IN')} | Area: ${u.unit_area} Sqft)</option>`;
+    });
+
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
+      <h1>
+        <span>👤 Allocate Vacant Portion to Tenant</span>
+        <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
+      </h1>
+      
+      <div class="form-box" style="margin-top:25px; background:white; border-color:#cbd5e1;">
+        <form action="/allocate-tenant" method="POST">
+          <div class="form-grid">
+            <div style="flex:2;">
+              <label>Select Portion to Allocate</label>
+              <select name="unitId" required>
+                <option value="" disabled selected>-- Choose an available vacant unit layout --</option>
+                ${dropdownOptionsHTML}
+              </select>
+            </div>
+            <div style="flex:1;">
+              <label>Security Deposit Received (₹)</label>
+              <input type="number" name="securityDeposit" placeholder="e.g. 50000" required>
+            </div>
+          </div>
+          
+          <div class="form-grid">
+            <div><label>Tenant Full Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div>
+            <div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div>
+          </div>
+          <div class="form-grid">
+            <div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div>
+            <div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div>
+          </div>
+          <div class="form-grid">
+            <div style="width:100%;"><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div>
+          </div>
+          
+          <button type="submit" class="btn btn-primary" style="width: 100%; padding:14px; margin-top:10px;">Register Tenant Profile & Move In</button>
+        </form>
+      </div>
+    </div></body></html>`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error loading assignment forms.");
+  }
+});
+
+// Action handler to insert a tenant profile and flag their assigned unit portion as occupied
+app.post('/allocate-tenant', async (req, res) => {
+  try {
+    const { unitId, tenantName, fatherName, phone, altPhone, idCardNo, securityDeposit } = req.body;
+    
+    // 1. Insert tenant profile block
+    await pool.query(`
+      INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [unitId, tenantName, fatherName, phone, altPhone || 'N/A', idCardNo, securityDeposit || 0]);
+
+    // 2. Set portion occupancy status directly to true
+    await pool.query('UPDATE units SET is_occupied = TRUE WHERE id = $1', [unitId]);
+    
+    res.redirect('/');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error opening tenant account allocation rows.");
+  }
+});
+
+// 4. Billing Engine Calculation Layer (Pulls pricing metrics straight from portion assets)
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -322,9 +415,13 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
     const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
 
-    const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
+    // Join tenants with units to auto-grab accurate portion billing rules natively
+    const activeTenantsResult = await pool.query(`
+      SELECT tenants.id as tenant_id, units.rent_amount, units.maintenance_amount 
+      FROM tenants JOIN units ON tenants.unit_id = units.id
+    `);
     
-    for (let tenant of tenantsResult.rows) {
+    for (let t of activeTenantsResult.rows) {
       let carriedBalance = 0;
 
       const prevInvoiceQuery = await pool.query(`
@@ -334,8 +431,8 @@ app.post('/generate-monthly-invoices', async (req, res) => {
         LEFT JOIN (
           SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id
         ) extras ON invoices.id = extras.invoice_id
-        WHERE invoices.tenant_id = $2 AND invoices.billing_month = $1
-      `, [previousMonthLabel, tenant.id]);
+        WHERE invoices.tenant_id = $1 AND invoices.billing_month = $2
+      `, [t.tenant_id, previousMonthLabel]);
 
       if (prevInvoiceQuery.rows.length > 0) {
         const pInv = prevInvoiceQuery.rows[0];
@@ -348,7 +445,7 @@ app.post('/generate-monthly-invoices', async (req, res) => {
         VALUES ($1, $2, $3, $4, 0, $5)
         ON CONFLICT (tenant_id, billing_month) DO UPDATE SET arrears_brought_forward = $5
         RETURNING id
-      `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount, carriedBalance]);
+      `, [t.tenant_id, billingMonth, t.rent_amount, t.maintenance_amount, carriedBalance]);
       
       const newInvoiceId = currentInvoiceResult.rows[0].id;
 
@@ -365,7 +462,72 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     res.redirect('/tenants?month=' + encodeURIComponent(billingMonth));
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error generating monthly statements.");
+    res.status(500).send("Error compiling month billing statement groups.");
+  }
+});
+
+// 5. Permanent Profile Directory Record Manager view page
+app.get('/manage-profiles', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT tenants.*, units.unit_name, units.rent_amount, units.maintenance_amount, units.unit_area
+      FROM tenants JOIN units ON tenants.unit_id = units.id 
+      ORDER BY units.unit_name ASC
+    `);
+    const activeProfiles = result.rows;
+
+    let rowsHTML = '';
+    activeProfiles.forEach(t => {
+      const clearIdString = String(t.id_card_no || '').replace(/'/g, "\\'");
+      rowsHTML += `
+        <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+            <div>
+              <strong style="font-size:16px; color:#0f172a;">👤 ${t.name}</strong> — 
+              <span style="color:#2563eb; font-weight:600;">Unit ${t.unit_name}</span> (${t.unit_area} Sqft)
+              <div style="font-size:13px; color:#64748b; margin-top:4px;">
+                Father: ${t.father_name || 'N/A'} | Phone: +91 ${t.phone} | Deposit: ₹${Number(t.security_deposit).toLocaleString('en-IN')}<br>
+                Rent Profile: Rent ₹${Number(t.rent_amount).toLocaleString('en-IN')} + Maint ₹${Number(t.maintenance_amount).toLocaleString('en-IN')} | Aadhaar: <span id="id-container-${t.id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${t.id}', '${clearIdString}')">(Reveal)</span>
+              </div>
+            </div>
+            <form action="/delete-tenant/${t.id}/${t.unit_id}" method="POST" style="margin:0;" onsubmit="return confirm('🚨 Move Out Confirmation: Are you sure you want to remove this tenant? This permanently clears their account profile and unlocks Portion [${t.unit_name}] back to Vacant.');">
+              <button type="submit" class="btn btn-danger" style="padding:8px 14px; font-size:13px;">🗑️ Tenant Moved Out</button>
+            </form>
+          </div>
+        </li>
+      `;
+    });
+
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
+      <h1>
+        <span>📋 Permanent Profile Record Directory Management</span>
+        <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
+      </h1>
+      <h3 style="color:#64748b; margin-top:6px; font-weight:normal;">Wiping a tenant record removes them from the active tracking lists and releases their portion asset back to the marketplace.</h3>
+      
+      <ul class="tenant-list" style="margin-top:20px;">
+        ${rowsHTML || '<li class="tenant-item" style="color:#64748b; text-align:center; padding:30px;">No occupied portion allotments found in system. Go back and select "Allocate Vacant Unit".</li>'}
+      </ul>
+    </div></body></html>`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error tracking permanent record sheets.");
+  }
+});
+
+// Action handler to wipe a tenant row and flag their unit back to vacant status
+app.post('/delete-tenant/:id/:unitId', async (req, res) => {
+  try {
+    const tenantId = req.params.id;
+    const unitId = req.params.unitId;
+    
+    await pool.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [unitId]);
+    
+    res.redirect('/manage-profiles');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Profile layout removal operations failed.");
   }
 });
 
@@ -402,23 +564,11 @@ app.post('/delete-extra-item/:itemId', async (req, res) => {
   try {
     const itemId = req.params.itemId;
     const selectedMonth = req.body.selectedMonth;
-    await pool.query('DELETE FROM invoice_extra_items WHERE id = $1');
+    await pool.query('DELETE FROM invoice_extra_items WHERE id = $1', [itemId]);
     res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
   } catch (err) {
     console.error(err);
     res.status(500).send("Error removing itemized entry.");
-  }
-});
-
-// UPGRADED ALIAS ACTION: Corrected route handler redirection workflow to hop back to directory maps
-app.post('/delete-tenant/:id', async (req, res) => {
-  try {
-    const tenantId = req.params.id;
-    await pool.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
-    res.redirect('/manage-profiles');
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Profile cleanup failed.");
   }
 });
 
@@ -438,6 +588,7 @@ app.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
+// 6. Master Ledger Directory View (Maps invoice totals accurately across units)
 app.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -474,11 +625,13 @@ app.get('/tenants', async (req, res) => {
 
     const ledgerResult = await pool.query(`
       SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.arrears_brought_forward,
-             tenants.id AS tenant_id, tenants.name, tenants.unit, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.unit_area, tenants.security_deposit
+             tenants.id AS tenant_id, tenants.name, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.security_deposit,
+             units.unit_name, units.unit_area
       FROM invoices
       JOIN tenants ON invoices.tenant_id = tenants.id
+      JOIN units ON tenants.unit_id = units.id
       WHERE invoices.billing_month = $1
-      ORDER BY invoices.id DESC
+      ORDER BY units.unit_name ASC
     `, [selectedMonth]);
 
     const logsResult = await pool.query('SELECT * FROM payment_logs ORDER BY payment_date DESC');
@@ -501,6 +654,7 @@ app.get('/tenants', async (req, res) => {
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
       const fmtRent = baseRent.toLocaleString('en-IN');
       const fmtMaint = maintenance.toLocaleString('en-IN');
+      const fmtArrears = arrears.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
@@ -568,19 +722,20 @@ app.get('/tenants', async (req, res) => {
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
-      let rolloverNotificationHTML = '';
       if (arrears > 0) {
         rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward from Last Month: +₹${arrears.toLocaleString('en-IN')}</div>`;
       } else if (arrears < 0) {
         rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#0369a1; background:#f0f9ff; padding:6px 10px; border-radius:4px; font-weight:600;">🔵 Advance Credit Applied from Last Month: -₹${Math.abs(arrears).toLocaleString('en-IN')}</div>`;
+      } else {
+        rolloverNotificationHTML = '';
       }
 
-      const searchMetadata = `${row.name} ${row.unit} ${row.phone} ${row.father_name}`;
+      const searchMetadata = `${row.name} ${row.unit_name} ${row.phone} ${row.father_name}`;
 
       tenantRows += `
         <li class="tenant-item" data-search="${searchMetadata}">
           <div class="item-header">
-            <div><strong>👤 ${row.name}</strong> — <span style="color:#2563eb; font-weight:600;">Unit ${row.unit}</span> ${statusBadge}</div>
+            <div><strong>👤 ${row.name}</strong> — <span style="color:#2563eb; font-weight:600;">Portion ${row.unit_name}</span> ${statusBadge}</div>
             <div class="actions">${paymentForm} ${receiptButton}</div>
           </div>
           <div class="meta-grid">
@@ -649,12 +804,16 @@ app.get('/tenants', async (req, res) => {
   }
 });
 
+// Printable Invoicing template mapping metrics dynamically straight from unit tables
 app.get('/invoice/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const invoiceQuery = await pool.query(`
-      SELECT invoices.*, tenants.name, tenants.unit, tenants.father_name, tenants.phone 
-      FROM invoices JOIN tenants ON invoices.tenant_id = tenants.id WHERE invoices.id = $1
+      SELECT invoices.*, tenants.name, tenants.father_name, tenants.phone, units.unit_name 
+      FROM invoices 
+      JOIN tenants ON invoices.tenant_id = tenants.id 
+      JOIN units ON tenants.unit_id = units.id
+      WHERE invoices.id = $1
     `, [invoiceId]);
 
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
@@ -701,7 +860,7 @@ app.get('/invoice/:invoiceId', async (req, res) => {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Invoice - Unit ${inv.unit}</title>
+        <title>Invoice - Portion ${inv.unit_name}</title>
         <style>
           body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 50px; background: #f1f5f9; display: flex; justify-content: center; }
           .invoice-card { background: white; padding: 40px; border-radius: 8px; width: 100%; max-width: 650px; box-shadow: 0 4px 6px rgb(0 0 0 / 0.05); box-sizing: border-box; }
@@ -735,7 +894,7 @@ app.get('/invoice/:invoiceId', async (req, res) => {
             <strong>BILL TO:</strong><br>
             Tenant Name: ${inv.name}<br>
             Father's Name: ${inv.father_name}<br>
-            Unit Number: Allocated Unit ${inv.unit}<br>
+            Allocated Portion: Unit ${inv.unit_name}<br>
             Phone: +91 ${inv.phone}
           </div>
 

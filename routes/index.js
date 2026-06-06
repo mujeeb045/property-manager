@@ -1,5 +1,5 @@
 const express = require('express');
-const router = Router();
+const router = express.Router();
 const pool = require('../config/db');
 
 // View Component Assemblers Import

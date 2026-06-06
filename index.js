@@ -1,3 +1,15 @@
+That makes complete sense! Switching your dashboard to Indian Standard Time (IST) and Indian Rupees (INR) will make this a perfect fit for managing properties locally.
+
+To do this, we will make two clean updates:
+
+Currency (₹): Swap out all the $ symbols for the rupee sign (₹) and change the field labels.
+
+Timezone (IST): Tell the application to explicitly read and format your database timestamps using the 'en-IN' locale with the 'Asia/Kolkata' timezone parameter.
+
+Step 1: Upgrade index.js for India Localization
+Open your index.js file, erase everything, and paste this localized version:
+
+JavaScript
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
@@ -95,7 +107,7 @@ const HTML_HEAD = `
   </head>
 `;
 
-// 1. Intake Form View
+// 1. Intake Form View (INR Labels)
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Property Management Dashboard</h1><div class="form-box">
     <h3>📋 Comprehensive Tenant Intake Form</h3>
@@ -114,11 +126,11 @@ app.get('/', (req, res) => {
       </div>
       <div class="form-grid">
         <div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div>
-        <div><label>Security Deposit Paid ($)</label><input type="number" name="securityDeposit" placeholder="e.g. 25000" required></div>
+        <div><label>Security Deposit Paid (₹)</label><input type="number" name="securityDeposit" placeholder="e.g. 50000" required></div>
       </div>
       <div class="form-grid">
-        <div><label>Monthly Base Rent ($)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div>
-        <div><label>Monthly Maintenance Charges ($)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
+        <div><label>Monthly Base Rent (₹)</label><input type="number" name="rentAmount" placeholder="e.g. 19000" required></div>
+        <div><label>Monthly Maintenance Charges (₹)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
       </div>
       <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button>
     </form></div>
@@ -169,12 +181,10 @@ app.post('/delete-tenant/:id', async (req, res) => {
   }
 });
 
-// 5. Master Ledger View
+// 5. Master Ledger View (Indian Number System + IST Dates)
 app.get('/tenants', async (req, res) => {
   try {
     const totalCollectedQuery = await pool.query('SELECT SUM(COALESCE(amount_paid, 0)) FROM tenants');
-    
-    // Fixed: Used clear single quotes here to separate strings cleanly
     const totalOwedQuery = await pool.query(
       "SELECT SUM(CASE WHEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) > COALESCE(amount_paid, 0) THEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) - COALESCE(amount_paid, 0) ELSE 0 END) FROM tenants"
     );
@@ -198,21 +208,28 @@ app.get('/tenants', async (req, res) => {
       const remainingBalanceOwed = totalTargetInvoice - currentPaid;
       const clearIdString = String(tenant.id_card_no || '').replace(/'/g, "\\'");
 
+      // Formatting numbers to Indian Standard (en-IN) e.g., 1,00,000 instead of 100,000
+      const fmtInvoice = totalTargetInvoice.toLocaleString('en-IN');
+      const fmtRent = baseRent.toLocaleString('en-IN');
+      const fmtMaint = maintenance.toLocaleString('en-IN');
+      const fmtPaid = currentPaid.toLocaleString('en-IN');
+      const fmtDeposit = Number(tenant.security_deposit || 0).toLocaleString('en-IN');
+
       let statusBadge = '';
       if (currentPaid === 0) {
         statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
       } else if (remainingBalanceOwed > 0) {
-        statusBadge = `<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()} Due)</span>`;
+        statusBadge = `<span class="badge badge-partial">Partial (₹${remainingBalanceOwed.toLocaleString('en-IN')} Due)</span>`;
       } else if (remainingBalanceOwed < 0) {
         const creditBalance = Math.abs(remainingBalanceOwed);
-        statusBadge = `<span class="badge badge-advance">🔵 Advance Credit ($${creditBalance.toLocaleString()})</span>`;
+        statusBadge = `<span class="badge badge-advance">🔵 Advance Credit (₹${creditBalance.toLocaleString('en-IN')})</span>`;
       } else {
         statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
       }
 
       const dynamicPaymentInput = `
         <form action="/collect-payment/${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
-          <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt ($)" required>
+          <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt (₹)" required>
           <button type="submit" class="btn btn-success" style="padding: 6px 10px;">Pay</button>
         </form>
       `;
@@ -221,12 +238,14 @@ app.get('/tenants', async (req, res) => {
       const tenantLogs = globalLogs.filter(log => log.tenant_id === tenant.id);
       
       tenantLogs.forEach(log => {
-        const cleanDate = new Date(log.payment_date).toLocaleDateString('en-US', {
-          month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        // NEW: Formatted explicitly to Indian Standard Time (IST) Zone
+        const cleanDate = new Date(log.payment_date).toLocaleDateString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
         });
         internalHistoryItems += `
           <div class="history-item">
-            <span>➕ Received: $${Number(log.amount_paid).toLocaleString()}</span>
+            <span>➕ Received: ₹${Number(log.amount_paid).toLocaleString('en-IN')}</span>
             <span style="color: #64748b;">📅 ${cleanDate}</span>
           </div>
         `;
@@ -253,12 +272,12 @@ app.get('/tenants', async (req, res) => {
                 <div>💼 <strong>Father's Name:</strong> ${tenant.father_name || 'N/A'}</div>
                 <div>📞 <strong>Primary Phone:</strong> ${tenant.phone || 'N/A'}</div>
                 <div>🔒 <strong>Identity Verification:</strong> <span id="id-container-${tenant.id}" style="font-weight: 600; letter-spacing: 0.05em;">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${tenant.id}', '${clearIdString}')">(Reveal)</span></div>
-                <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit || 0).toLocaleString()}</div>
-                <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
+                <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
+                <div>📊 <strong>Invoice Target:</strong> ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint})</div>
               </div>
               
               <div style="font-size: 13px; color: #1e293b; margin-top: 8px; font-weight: 500;">
-                Total Paid Current Month: <span style="color: #10b981; font-weight:700;">$${currentPaid.toLocaleString()}</span>
+                Total Paid Current Month: <span style="color: #10b981; font-weight:700;">₹${fmtPaid}</span>
               </div>
             </div>
             <div class="actions">
@@ -273,7 +292,7 @@ app.get('/tenants', async (req, res) => {
       `;
     });
 
-    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Master Directory & Business Ledgers</h1><div class="flex-stats"><div class="stat-card stat-card-paid"><small>Gross Collections</small><h2>$${grossCollected.toLocaleString()}</h2></div><div class="stat-card stat-card-unpaid"><small>Total Dues Outstanding</small><h2>$${grossOutstanding.toLocaleString()}</h2></div></div><h3 style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Active Records Ledger</h3><ul class="tenant-list">${tenantRows || '<li class="tenant-item">No active records found.</li>'}</ul><div style="margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 20px;"><a href="/" class="btn btn-secondary">← Back to Registration Form</a></div></div></body></html>`);
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Master Directory & Business Ledgers</h1><div class="flex-stats"><div class="stat-card stat-card-paid"><small>Gross Collections</small><h2>₹${grossCollected.toLocaleString('en-IN')}</h2></div><div class="stat-card stat-card-unpaid"><small>Total Dues Outstanding</small><h2>₹${grossOutstanding.toLocaleString('en-IN')}</h2></div></div><h3 style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Active Records Ledger</h3><ul class="tenant-list">${tenantRows || '<li class="tenant-item">No active records found.</li>'}</ul><div style="margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 20px;"><a href="/" class="btn btn-secondary">← Back to Registration Form</a></div></div></body></html>`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Error reading calculations.");

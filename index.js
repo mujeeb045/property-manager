@@ -37,13 +37,9 @@ async function initDatabase() {
       rent_charged NUMERIC DEFAULT 0,
       maintenance_charged NUMERIC DEFAULT 0,
       amount_paid NUMERIC DEFAULT 0,
+      arrears_brought_forward NUMERIC DEFAULT 0,
       UNIQUE(tenant_id, billing_month)
     );
-  `);
-
-  // NEW COLUMN: Keeps track of legacy debt brought forward from past month statements
-  await pool.query(`
-    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS arrears_brought_forward NUMERIC DEFAULT 0;
   `);
 
   await pool.query(`
@@ -53,6 +49,11 @@ async function initDatabase() {
       item_desc TEXT NOT NULL,
       item_amount NUMERIC NOT NULL
     );
+  `);
+
+  // NEW: Add a billing_month tracking tag directly to extra items to handle deferred cycles
+  await pool.query(`
+    ALTER TABLE invoice_extra_items ADD COLUMN IF NOT EXISTS item_billing_month TEXT DEFAULT '';
   `);
 
   await pool.query(`
@@ -66,7 +67,6 @@ async function initDatabase() {
 }
 initDatabase().catch(err => console.error("Database setup failed:", err));
 
-// Helper map to look backward exactly 1 calendar cycle
 const PREVIOUS_MONTH_MAP = {
   "Jan": "Dec", "Feb": "Jan", "Mar": "Feb", "Apr": "Mar", "May": "Apr", "Jun": "May",
   "Jul": "Jun", "Aug": "Jul", "Sep": "Aug", "Oct": "Sep", "Nov": "Oct", "Dec": "Nov"
@@ -116,7 +116,7 @@ const HTML_HEAD = `
       .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
       .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
       
-      .extra-charge-form { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
+      .extra-charge-form { background: #e0f2fe; border: 1px solid #bae6fd; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
       
       .charge-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -156,7 +156,7 @@ const HTML_HEAD = `
         const selectedMonth = document.getElementById('targetMonth').value;
         const selectedYear = document.getElementById('targetYear').value;
         const targetString = selectedMonth + ' ' + selectedYear;
-        return confirm('⚠️ Are you sure you want to generate monthly recurring rent & maintenance bills for [' + targetString + ']? Outstanding arrears from previous cycles will carry forward dynamically.');
+        return confirm('⚠️ Are you sure you want to generate bills for [' + targetString + ']? Maintenance charges logged in the previous month will automatically attach to this new statement.');
       }
     </script>
   </head>
@@ -237,13 +237,12 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// UPGRADED RECURRING BILL GENERATOR ROUTE WITH INTELLIGENT ARREARS CALCULATION LOGIC
+// UPGRADED BATCH INVOICE GENERATOR WITH PREVIOUS-MONTH AD-HOC DEFERRED COUPLING ENGINE
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
     const billingMonth = `${targetMonth} ${targetYear}`;
     
-    // Calculate what previous month context label would look like (accounting for year boundaries)
     const prevMonthShort = PREVIOUS_MONTH_MAP[targetMonth];
     const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
     const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
@@ -253,35 +252,47 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     for (let tenant of tenantsResult.rows) {
       let carriedArrears = 0;
 
-      // Look back into past invoices for this tenant to catch open statements
+      // 1. Compute outstanding arrears from previous month
       const prevInvoiceQuery = await pool.query(`
         SELECT invoices.id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.arrears_brought_forward,
                COALESCE(extras.extra_sum, 0) as item_extras
         FROM invoices
         LEFT JOIN (
-          SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items GROUP BY invoice_id
+          SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id
         ) extras ON invoices.id = extras.invoice_id
-        WHERE invoices.tenant_id = $1 AND invoices.billing_month = $2
-      `, [tenant.id, previousMonthLabel]);
+        WHERE invoices.tenant_id = $2 AND invoices.billing_month = $1
+      `, [previousMonthLabel, tenant.id]);
 
       if (prevInvoiceQuery.rows.length > 0) {
         const pInv = prevInvoiceQuery.rows[0];
         const totalChargedLastMonth = Number(pInv.rent_charged) + Number(pInv.maintenance_charged) + Number(pInv.arrears_brought_forward) + Number(pInv.item_extras);
         const outstandingLastMonth = totalChargedLastMonth - Number(pInv.amount_paid);
-        
-        // If they still owe money, drop it straight into the carried arrears balance pool
         if (outstandingLastMonth > 0) {
           carriedArrears = outstandingLastMonth;
         }
       }
 
-      // Generate invoice with arrears tracked natively
-      await pool.query(`
+      // 2. Generate the main core invoice row for the target month
+      const currentInvoiceResult = await pool.query(`
         INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid, arrears_brought_forward)
         VALUES ($1, $2, $3, $4, 0, $5)
-        ON CONFLICT (tenant_id, billing_month) DO UPDATE 
-        SET arrears_brought_forward = $5 -- Update if generated again
+        ON CONFLICT (tenant_id, billing_month) DO UPDATE SET arrears_brought_forward = $5
+        RETURNING id
       `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount, carriedArrears]);
+      
+      const newInvoiceId = currentInvoiceResult.rows[0].id;
+
+      // 3. DEFERRED AD-HOC TRANSFER: Find repairs added *during* the previous month that were tagged for this month's bill
+      if (prevInvoiceQuery.rows.length > 0) {
+        const oldInvoiceId = prevInvoiceQuery.rows[0].id;
+        
+        // Re-target item_billing_month items to match the newly generated statement sheet
+        await pool.query(`
+          UPDATE invoice_extra_items 
+          SET invoice_id = $1 
+          WHERE invoice_id = $2 AND item_billing_month = $3
+        `, [newInvoiceId, oldInvoiceId, billingMonth]);
+      }
     }
     
     res.redirect('/tenants?month=' + encodeURIComponent(billingMonth));
@@ -291,17 +302,30 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
+// UPGRADED ACTION ROUTE: Stores the ad-hoc expense and tags it for the *next month cycle*
 app.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
     const itemDesc = req.body.itemDesc || 'General Maintenance';
     const itemAmount = Number(req.body.itemAmount || 0);
-    const selectedMonth = req.body.selectedMonth;
+    const selectedMonth = req.body.selectedMonth; // Current dashboard context (e.g., "Jun 2026")
+
+    // Figure out the NEXT calendar month target label
+    const parts = selectedMonth.split(' ');
+    const currentM = parts[0];
+    const currentY = Number(parts[1]);
+    
+    const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentIndex = monthArray.indexOf(currentM);
+    
+    let nextM = monthArray[(currentIndex + 1) % 12];
+    let nextY = (currentM === "Dec") ? currentY + 1 : currentY;
+    const nextMonthLabel = `${nextM} ${nextY}`; // The target cycle when the tenant will see the bill
 
     await pool.query(`
-      INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount)
-      VALUES ($1, $2, $3)
-    `, [invoiceId, itemDesc, itemAmount]);
+      INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount, item_billing_month)
+      VALUES ($1, $2, $3, $4)
+    `, [invoiceId, itemDesc, itemAmount, nextMonthLabel]);
 
     res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
   } catch (err) {
@@ -314,9 +338,7 @@ app.post('/delete-extra-item/:itemId', async (req, res) => {
   try {
     const itemId = req.params.itemId;
     const selectedMonth = req.body.selectedMonth;
-
     await pool.query('DELETE FROM invoice_extra_items WHERE id = $1', [itemId]);
-
     res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
   } catch (err) {
     console.error(err);
@@ -346,21 +368,24 @@ app.get('/tenants', async (req, res) => {
     const currentMonthLabel = `${nowIST.toLocaleDateString('en-IN', { month: 'short' })} ${nowIST.getFullYear()}`;
     const selectedMonth = req.query.month || currentMonthLabel;
 
+    // Pull itemized logs active on *this month's invoice target*
     const allExtrasQuery = await pool.query(`
-      SELECT invoice_extra_items.* FROM invoice_extra_items
-      JOIN invoices ON invoice_extra_items.invoice_id = invoices.id
-      WHERE invoices.billing_month = $1
+      SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1)
     `, [selectedMonth]);
     const globalExtras = allExtrasQuery.rows;
 
+    // Pull pending future logs recorded here, but designated for NEXT month's bill
+    const pendingExtrasQuery = await pool.query(`
+      SELECT * FROM invoice_extra_items WHERE invoice_id IN (SELECT id FROM invoices WHERE billing_month = $1) AND item_billing_month != $1
+    `, [selectedMonth]);
+    const globalPending = pendingExtrasQuery.rows;
+
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
-    
-    // Total Global outstanding math adjusted to sum rent + maintenance + arrears + itemized repairs
     const statsOwed = await pool.query(`
       SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
       FROM invoices
       LEFT JOIN (
-        SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items GROUP BY invoice_id
+        SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id
       ) extras ON invoices.id = extras.invoice_id
       WHERE invoices.billing_month = $1
     `, [selectedMonth]);
@@ -387,14 +412,18 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     ledgerResult.rows.forEach(row => {
-      const myExtras = globalExtras.filter(item => item.invoice_id === row.invoice_id);
-      const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
+      // Filter out items charging on THIS month statement
+      const myActiveExtras = globalExtras.filter(item => item.invoice_id === row.invoice_id && item.item_billing_month === selectedMonth);
+      const sumOfActiveExtras = myActiveExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
+
+      // Filter out items logged now, but deferred to NEXT month
+      const myPendingExtras = globalPending.filter(item => item.invoice_id === row.invoice_id);
 
       const baseRent = Number(row.rent_charged || 0);
       const maintenance = Number(row.maintenance_charged || 0);
       const arrears = Number(row.arrears_brought_forward || 0);
       
-      const targetInvoice = baseRent + maintenance + arrears + sumOfExtras;
+      const targetInvoice = baseRent + maintenance + arrears + sumOfActiveExtras;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
       const clearIdString = String(row.id_card_no || '').replace(/'/g, "\\'");
 
@@ -430,23 +459,32 @@ app.get('/tenants', async (req, res) => {
         <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
           <input type="hidden" name="selectedMonth" value="${selectedMonth}">
           <div style="flex: 2;">
-            <label style="font-size:11px; margin-bottom:2px;">➕ Add Itemized Maintenance Work</label>
-            <input type="text" name="itemDesc" placeholder="e.g., Bathroom Plumbing work" required style="width:100%;">
+            <label style="color:#0369a1; font-size:11px; margin-bottom:2px;">🛠️ Log Work Now (Bills Next Month)</label>
+            <input type="text" name="itemDesc" placeholder="e.g., Plumbing Repair" required style="width:100%;">
           </div>
           <div style="flex: 1;">
-            <label style="font-size:11px; margin-bottom:2px;">Cost (₹)</label>
-            <input type="number" name="itemAmount" placeholder="₹ Price" required style="width:100%;">
+            <label style="color:#0369a1; font-size:11px; margin-bottom:2px;">Cost (₹)</label>
+            <input type="number" name="itemAmount" placeholder="Price" required style="width:100%;">
           </div>
-          <button type="submit" class="btn btn-primary" style="padding: 7px 12px; font-size:12px;">Add Charge</button>
+          <button type="submit" class="btn btn-primary" style="padding: 7px 12px; font-size:12px; background:#0284c7;">Log Repair</button>
         </form>
       `;
 
-      let chargeTagsHTML = '';
-      myExtras.forEach(item => {
-        chargeTagsHTML += `
-          <div class="charge-tag">
-            🛠️ <strong>${item.item_desc}:</strong> ₹${Number(item.item_amount).toLocaleString('en-IN')}
-            <form action="/delete-extra-item/${item.id}" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Remove this charge item?');">
+      let activeChargeTagsHTML = '';
+      myActiveExtras.forEach(item => {
+        activeChargeTagsHTML += `
+          <div class="charge-tag" style="background:#f0fdf4; border-color:#bbf7d0; color:#166534;">
+            📋 <strong>[Billed] ${item.item_desc}:</strong> ₹${Number(item.item_amount).toLocaleString('en-IN')}
+          </div>
+        `;
+      });
+
+      let pendingChargeTagsHTML = '';
+      myPendingExtras.forEach(item => {
+        pendingChargeTagsHTML += `
+          <div class="charge-tag" style="background:#eff6ff; border-color:#bfdbfe; color:#1e40af;">
+            ⏳ <strong>[Next Month Bill] ${item.item_desc}:</strong> ₹${Number(item.item_amount).toLocaleString('en-IN')}
+            <form action="/delete-extra-item/${item.id}" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Remove this pending charge?');">
               <input type="hidden" name="selectedMonth" value="${selectedMonth}">
               <button type="submit" class="charge-tag-delete">&times;</button>
             </form>
@@ -474,11 +512,15 @@ app.get('/tenants', async (req, res) => {
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
             <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Arrears: ₹${fmtArrears} + Extras: ₹${sumOfExtras.toLocaleString('en-IN')})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total Owed: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Arrears: ₹${fmtArrears} + Active Repairs: ₹${sumOfActiveExtras.toLocaleString('en-IN')})</div>
           </div>
           
           ${arrears > 0 ? `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Brought Forward from Last Month: +₹${fmtArrears}</div>` : ''}
-          ${chargeTagsHTML ? `<div class="charge-tag-list">${chargeTagsHTML}</div>` : ''}
+          
+          <div class="charge-tag-list">
+            ${activeChargeTagsHTML}
+            ${pendingChargeTagsHTML}
+          </div>
           
           <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
           
@@ -541,9 +583,10 @@ app.get('/invoice/:invoiceId', async (req, res) => {
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
     
-    const extrasQuery = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id = $1', [invoiceId]);
-    const myExtras = extrasQuery.rows;
-    const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
+    // Select ONLY the extra items designated to print on THIS billing month statement sheet
+    const extrasQuery = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id = $1 AND item_billing_month = $2', [invoiceId, inv.billing_month]);
+    const myActiveExtras = extrasQuery.rows;
+    const sumOfExtras = myActiveExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
 
     const baseRent = Number(inv.rent_charged || 0);
     const maintenance = Number(inv.maintenance_charged || 0);
@@ -552,10 +595,10 @@ app.get('/invoice/:invoiceId', async (req, res) => {
     const balance = totalCharged - Number(inv.amount_paid);
 
     let itemizedRowsHTML = '';
-    myExtras.forEach(item => {
+    myActiveExtras.forEach(item => {
       itemizedRowsHTML += `
         <tr>
-          <td>🛠️ Maintenance: ${item.item_desc}</td>
+          <td>🛠️ Maintenance repair: ${item.item_desc}</td>
           <td style="text-align: right;">₹${Number(item.item_amount).toLocaleString('en-IN')}</td>
         </tr>
       `;

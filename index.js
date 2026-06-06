@@ -76,18 +76,27 @@ const HTML_HEAD = `
       body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 40px; display: flex; justify-content: center; }
       .container { width: 100%; max-width: 950px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); }
       h1 { color: #0f172a; margin-top: 0; font-size: 26px; font-weight: 700; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+      h2 { color: #1e293b; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 20px; }
       h3 { color: #334155; margin-top: 0; margin-bottom: 20px; font-size: 18px; }
       label { font-weight: 600; font-size: 13px; color: #475569; display: block; margin-bottom: 6px; }
       input, select { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; margin-bottom: 14px; font-size: 14px; background: white; }
       .form-grid { display: flex; gap: 16px; margin-bottom: 4px; }
       .form-grid > div { flex: 1; }
       .form-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 24px; border-radius: 8px; margin-bottom: 25px; }
-      .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; text-align: center; }
+      .btn { display: inline-block; padding: 12px 24px; border: none; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; text-align: center; box-sizing: border-box; }
       .btn-primary { background: #2563eb; color: white; }
       .btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
       .btn-success { background: #10b981; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; }
-      .btn-danger { background: #ef4444; color: white; padding: 6px 12px; font-size: 13px; }
+      .btn-danger { background: #ef4444; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; }
       .btn-info { background: #0284c7; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; text-decoration: none; }
+      
+      /* Hub Menu Navigation Buttons Layout Grid */
+      .hub-menu-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 20px; }
+      .hub-btn { display: flex; align-items: center; justify-content: space-between; padding: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #0f172a; font-weight: 600; font-size: 16px; transition: all 0.2s ease; }
+      .hub-btn:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
+      .hub-icon-wrap { font-size: 24px; display: flex; align-items: center; gap: 14px; }
+      .hub-arrow { color: #64748b; font-size: 18px; }
+
       .flex-stats { display: flex; gap: 20px; margin-bottom: 30px; }
       .stat-card { flex: 1; padding: 20px; border-radius: 8px; border-left: 4px solid #cbd5e1; }
       .stat-card-paid { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
@@ -108,7 +117,6 @@ const HTML_HEAD = `
       .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
       .history-item { font-size: 12px; color: #334155; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
       .history-item:last-child { border-bottom: none; }
-      
       .search-box { position: relative; margin-bottom: 20px; }
       .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
       .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
@@ -120,11 +128,9 @@ const HTML_HEAD = `
       .charge-tag { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
       .charge-tag-delete { color: #ef4444; font-weight: bold; border: none; background: none; padding: 0; font-size: 14px; cursor: pointer; }
       
-      .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 25px; }
+      .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 20px; border: none; }
       .batch-billing-panel div { display: flex; flex-direction: column; gap: 4px; }
       .batch-billing-panel select, .batch-billing-panel input { margin-bottom: 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; border: none; width: auto; }
-      
-      /* Top header navigation utility box link styles */
       .top-nav-box { display: flex; align-items: center; gap: 10px; }
     </style>
     <script>
@@ -162,6 +168,7 @@ const HTML_HEAD = `
   </head>
 `;
 
+// 1. BRAND NEW ROUTE: Simple Central Dashboard Landing Hub
 app.get('/', (req, res) => {
   const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
   const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
@@ -174,24 +181,53 @@ app.get('/', (req, res) => {
   });
 
   res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
-    <h1 style="border-bottom:none; margin-bottom:10px;">Property Management Dashboard</h1>
+    <h1>🏠 Property Management Control Panel</h1>
+    
+    <div style="margin-top:25px; border-bottom:1px solid #f1f5f9; padding-bottom:15px;">
+      <h2>⚡ Monthly Billing Generation Engine</h2>
+      <form action="/generate-monthly-invoices" method="POST" onsubmit="return confirmBatchGeneration();" class="batch-billing-panel">
+        <div style="flex:1;">
+          <label style="color:#cbd5e1;">Select Month Cycle</label>
+          <select id="targetMonth" name="targetMonth">${monthOptionsHTML}</select>
+        </div>
+        <div style="flex:1;">
+          <label style="color:#cbd5e1;">Select Year</label>
+          <input type="number" id="targetYear" name="targetYear" value="${currentYear}" min="2020" max="2100" required>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary" style="background:#10b981; padding:9px 20px;">Generate Monthly Bills</button>
+        </div>
+      </form>
+    </div>
 
-    <form action="/generate-monthly-invoices" method="POST" onsubmit="return confirmBatchGeneration();" class="batch-billing-panel">
-      <div style="flex:1;">
-        <label style="color:#cbd5e1;">Select Month Cycle</label>
-        <select id="targetMonth" name="targetMonth">${monthOptionsHTML}</select>
-      </div>
-      <div style="flex:1;">
-        <label style="color:#cbd5e1;">Select Year</label>
-        <input type="number" id="targetYear" name="targetYear" value="${currentYear}" min="2020" max="2100" required>
-      </div>
-      <div>
-        <button type="submit" class="btn btn-primary" style="background:#10b981; padding:9px 20px;">⚡ Generate Bills</button>
-      </div>
-    </form>
+    <div class="hub-menu-grid">
+      <a href="/tenants" class="hub-btn">
+        <span class="hub-icon-wrap">📂 <span>📂 Access Monthly Billing Ledgers & Invoices</span></span>
+        <span class="hub-arrow">→</span>
+      </a>
+      
+      <a href="/register-tenant" class="hub-btn">
+        <span class="hub-icon-wrap">➕ <span>➕ Add / Register a New Tenant Profile</span></span>
+        <span class="hub-arrow">→</span>
+      </a>
+      
+      <a href="/manage-profiles" class="hub-btn">
+        <span class="hub-icon-wrap">🗑️ <span>🗑️ Remove / Manage Permanent Tenant Records</span></span>
+        <span class="hub-arrow">→</span>
+      </a>
+    </div>
+  </div></body></html>`);
+});
 
-    <div class="form-box">
-      <h3>➕ Register New Tenant Profile</h3>
+// 2. NEW ROUTE: Dedicated Clean Registration View Page
+app.get('/register-tenant', (req, res) => {
+  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
+    <h1>
+      <span>📋 Register New Tenant Profile</span>
+      <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
+    </h1>
+    
+    <div class="form-box" style="margin-top:25px; background:white; border-color:#cbd5e1;">
       <form action="/add-tenant" method="POST">
         <div class="form-grid">
           <div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div>
@@ -213,14 +249,54 @@ app.get('/', (req, res) => {
           <div><label>Monthly Base Rent (₹)</label><input type="number" name="rentAmount" placeholder="e.g. 19000" required></div>
           <div><label>Monthly Maintenance Charges (₹)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
         </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Register Tenant Profile</button>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding:14px;">Register Profile & Open Master Account</button>
       </form>
     </div>
-    
-    <div style="text-align: center;">
-      <a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Monthly Billing Ledgers Directory →</a>
-    </div>
   </div></body></html>`);
+});
+
+// 3. NEW ROUTE: Dedicated Clean Removal/Permanent Record Manager View Page
+app.get('/manage-profiles', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM tenants ORDER BY unit ASC');
+    const tenants = result.rows;
+
+    let rowsHTML = '';
+    tenants.forEach(t => {
+      const clearIdString = String(t.id_card_no || '').replace(/'/g, "\\'");
+      rowsHTML += `
+        <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
+          <div style="display:flex; justify-content:between; align-items:center; width:100%; justify-content: space-between;">
+            <div>
+              <strong style="font-size:16px; color:#0f172a;">👤 ${t.name}</strong> — 
+              <span style="color:#2563eb; font-weight:600;">Unit ${t.unit}</span>
+              <div style="font-size:13px; color:#64748b; margin-top:4px;">
+                Father: ${t.father_name || 'N/A'} | Phone: +91 ${t.phone} | Aadhaar: <span id="id-container-${t.id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${t.id}', '${clearIdString}')">(Reveal)</span>
+              </div>
+            </div>
+            <form action="/delete-tenant/${t.id}" method="POST" style="margin:0;" onsubmit="return confirm('🚨 DANGER: Are you completely sure this tenant moved out? This will permanently delete their historical profile and all associated invoices.');">
+              <button type="submit" class="btn btn-danger" style="padding:8px 14px; font-size:13px;">🗑️ Delete Record</button>
+            </form>
+          </div>
+        </li>
+      `;
+    });
+
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
+      <h1>
+        <span>📋 Permanent Tenant Directory Management</span>
+        <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px;">← Main Hub</a>
+      </h1>
+      <h3 style="color:#64748b; margin-top:6px; font-weight:normal;">Below is the master list of all active profiles. Removing a tenant here clears them completely from future ledger operations.</h3>
+      
+      <ul class="tenant-list" style="margin-top:20px;">
+        ${rowsHTML || '<li class="tenant-item" style="color:#64748b; text-align:center; padding:30px;">No registered profiles found in database. Go back and click "Add a New Tenant".</li>'}
+      </ul>
+    </div></body></html>`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error reading master directory schema.");
+  }
 });
 
 app.post('/add-tenant', async (req, res) => {
@@ -326,11 +402,23 @@ app.post('/delete-extra-item/:itemId', async (req, res) => {
   try {
     const itemId = req.params.itemId;
     const selectedMonth = req.body.selectedMonth;
-    await pool.query('DELETE FROM invoice_extra_items WHERE id = $1', [itemId]);
+    await pool.query('DELETE FROM invoice_extra_items WHERE id = $1');
     res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
   } catch (err) {
     console.error(err);
     res.status(500).send("Error removing itemized entry.");
+  }
+});
+
+// UPGRADED ALIAS ACTION: Corrected route handler redirection workflow to hop back to directory maps
+app.post('/delete-tenant/:id', async (req, res) => {
+  try {
+    const tenantId = req.params.id;
+    await pool.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+    res.redirect('/manage-profiles');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Profile cleanup failed.");
   }
 });
 
@@ -529,7 +617,6 @@ app.get('/tenants', async (req, res) => {
       dropdownOptions += `<option value="${m}" ${m === selectedMonth ? 'selected' : ''}>${m}</option>`;
     });
 
-    // UPGRADED HEADER: Added the top-nav-box with a direct "🏠 Go to Dashboard" navigation layout shortcut link
     res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
       <h1>
         <span>Monthly Financial Ledgers</span>

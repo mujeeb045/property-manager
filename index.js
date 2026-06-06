@@ -1,13 +1,3 @@
-Ah, let's look at the logs! The "Error reading calculations" message means the app booted up fine, but when it tried to run the SQL math to load the ledger page, PostgreSQL hit a roadblock.
-
-Since we just added the new overpayment math (CASE WHEN), it's highly likely that one of your existing tenants has a blank (NULL) or corrupted value in their rent_amount or maintenance_amount column from our earlier testing versions. When Postgres tries to do math on a blank space, it crashes.
-
-Let's make our SQL completely bulletproof against old test data by adding a safety fallback (COALESCE) to treat any empty spaces as 0.
-
-The Permanent Fix
-Open your index.js file, erase everything, and paste this bulletproof version:
-
-JavaScript
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
@@ -107,7 +97,33 @@ const HTML_HEAD = `
 
 // 1. Intake Form View
 app.get('/', (req, res) => {
-  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Property Management Dashboard</h1><div class="form-box"><h3>📋 Comprehensive Tenant Intake Form</h3><form action="/add-tenant" method="POST"><div class="form-grid"><div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div><div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div></div><div class="form-grid"><div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div><div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div></div><div class="form-grid"><div><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div><div><label>Unit Allocated</label><input type="text" name="unitNumber" placeholder="e.g. Flat 302" required></div></div><div class="form-grid"><div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div><div><label>Security Deposit Paid ($)</label><input type="number" name="securityDeposit" placeholder="e.g. 25000" required></div></div><div class="form-grid"><div><label>Monthly Base Rent ($)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div><div><label>Monthly Maintenance Charges ($)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div></div><button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button></form></div><div style="text-align: center;"><a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Tenant Master Directory & Ledgers</a></div></div></body></html>`);
+  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Property Management Dashboard</h1><div class="form-box">
+    <h3>📋 Comprehensive Tenant Intake Form</h3>
+    <form action="/add-tenant" method="POST">
+      <div class="form-grid">
+        <div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div>
+        <div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div>
+      </div>
+      <div class="form-grid">
+        <div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div>
+        <div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div>
+      </div>
+      <div class="form-grid">
+        <div><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div>
+        <div><label>Unit Allocated</label><input type="text" name="unitNumber" placeholder="e.g. Flat 302" required></div>
+      </div>
+      <div class="form-grid">
+        <div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div>
+        <div><label>Security Deposit Paid ($)</label><input type="number" name="securityDeposit" placeholder="e.g. 25000" required></div>
+      </div>
+      <div class="form-grid">
+        <div><label>Monthly Base Rent ($)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div>
+        <div><label>Monthly Maintenance Charges ($)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button>
+    </form></div>
+    <div style="text-align: center;"><a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Tenant Master Directory & Ledgers</a></div>
+  </div></body></html>`);
 });
 
 // 2. Add Tenant
@@ -132,11 +148,7 @@ app.post('/collect-payment/:id', async (req, res) => {
     const paymentAmount = Number(req.body.paymentAmount || 0);
 
     await pool.query('UPDATE tenants SET amount_paid = COALESCE(amount_paid, 0) + $1 WHERE id = $2', [paymentAmount, tenantId]);
-
-    await pool.query(
-      'INSERT INTO payment_logs (tenant_id, amount_paid) VALUES ($1, $2)',
-      [tenantId, paymentAmount]
-    );
+    await pool.query('INSERT INTO payment_logs (tenant_id, amount_paid) VALUES ($1, $2)', [tenantId, paymentAmount]);
 
     res.redirect('/tenants');
   } catch (err) {
@@ -157,21 +169,15 @@ app.post('/delete-tenant/:id', async (req, res) => {
   }
 });
 
-// 5. Master Ledger (With Safety Fallbacks)
+// 5. Master Ledger View
 app.get('/tenants', async (req, res) => {
   try {
-    // COALESCE checks if a field is NULL and instantly converts it to 0 so math never crashes
-    const totalCollectedQuery = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM tenants");
+    const totalCollectedQuery = await pool.query('SELECT SUM(COALESCE(amount_paid, 0)) FROM tenants');
     
-    const totalOwedQuery = await pool.query(`
-      SELECT SUM(
-        CASE 
-          WHEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) > COALESCE(amount_paid, 0) 
-          THEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) - COALESCE(amount_paid, 0) 
-          ELSE 0 
-        END
-      ) FROM tenants
-    `);
+    // Fixed: Used clear single quotes here to separate strings cleanly
+    const totalOwedQuery = await pool.query(
+      "SELECT SUM(CASE WHEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) > COALESCE(amount_paid, 0) THEN (COALESCE(rent_amount, 0) + COALESCE(maintenance_amount, 0)) - COALESCE(amount_paid, 0) ELSE 0 END) FROM tenants"
+    );
 
     const grossCollected = Number(totalCollectedQuery.rows[0].sum || 0);
     const grossOutstanding = Number(totalOwedQuery.rows[0].sum || 0);

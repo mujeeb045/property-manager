@@ -13,6 +13,7 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
+  // 1. Permanent Tenant Directory
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -29,6 +30,7 @@ async function initDatabase() {
     );
   `);
 
+  // 2. Monthly Invoices Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -41,6 +43,11 @@ async function initDatabase() {
     );
   `);
 
+  // SAFETY RESET: Drop the old transaction logs table if it contains the old legacy schema
+  // This allows PostgreSQL to re-create it with the correct invoice relationship columns.
+  await pool.query(`DROP TABLE IF EXISTS payment_logs CASCADE;`);
+
+  // 3. Re-build fresh Payment History Table matching our relational invoicing engine
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -238,6 +245,12 @@ app.get('/tenants', async (req, res) => {
       const remainingBalance = targetInvoice - Number(row.amount_paid);
       const clearIdString = String(row.id_card_no || '').replace(/'/g, "\\'");
 
+      const fmtInvoice = targetInvoice.toLocaleString('en-IN');
+      const fmtRent = Number(row.rent_charged).toLocaleString('en-IN');
+      const fmtMaint = Number(row.maintenance_charged).toLocaleString('en-IN');
+      const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
+      const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
+
       let statusBadge = '';
       if (Number(row.amount_paid) === 0) {
         statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
@@ -251,13 +264,13 @@ app.get('/tenants', async (req, res) => {
 
       const receiptButton = `<a href="/invoice/${row.invoice_id}" target="_blank" class="btn btn-info">📄 View Invoice</a>`;
 
-      const paymentForm = remainingBalance !== 0 ? `
+      const paymentForm = `
         <form action="/collect-invoice-payment/${row.invoice_id}" method="POST" style="margin:0; display:flex; gap:6px;">
           <input type="hidden" name="selectedMonth" value="${selectedMonth}">
           <input type="number" name="paymentAmount" class="pay-input" placeholder="Amt (₹)" required>
           <button type="submit" class="btn btn-success">Pay</button>
         </form>
-      ` : ``;
+      `;
 
       let internalLogs = '';
       globalLogs.filter(l => l.invoice_id === row.invoice_id).forEach(l => {
@@ -275,11 +288,11 @@ app.get('/tenants', async (req, res) => {
             <div>💼 <strong>Father's Name:</strong> ${row.father_name}</div>
             <div>📞 <strong>Phone:</strong> ${row.phone}</div>
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
-            <div>💰 <strong>Security Deposit:</strong> ₹${Number(row.security_deposit).toLocaleString('en-IN')}</div>
+            <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total: ₹${targetInvoice.toLocaleString('en-IN')} (Rent: ₹${Number(row.rent_charged).toLocaleString('en-IN')} + Maint: ₹${Number(row.maintenance_charged).toLocaleString('en-IN')})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint})</div>
           </div>
-          <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${Number(row.amount_paid).toLocaleString('en-IN')}</div>
+          <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
           <div class="history-box">
             <span class="history-title">📜 Month Payment Audit Timeline</span>
             ${internalLogs || '<div style="font-size:11px; color:#94a3b8;">No transactions logged for this month statement pool.</div>'}

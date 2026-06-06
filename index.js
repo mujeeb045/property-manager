@@ -109,6 +109,10 @@ const HTML_HEAD = `
       .history-item { font-size: 12px; color: #334155; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
       .history-item:last-child { border-bottom: none; }
       
+      .search-box { position: relative; margin-bottom: 20px; }
+      .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; margin-bottom: 0; }
+      .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
+      
       .extra-charge-form { background: #e0f2fe; border: 1px solid #bae6fd; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
       
@@ -119,6 +123,9 @@ const HTML_HEAD = `
       .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 25px; }
       .batch-billing-panel div { display: flex; flex-direction: column; gap: 4px; }
       .batch-billing-panel select, .batch-billing-panel input { margin-bottom: 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; border: none; width: auto; }
+      
+      /* Top header navigation utility box link styles */
+      .top-nav-box { display: flex; align-items: center; gap: 10px; }
     </style>
     <script>
       function toggleReveal(id, actualValue) {
@@ -132,7 +139,6 @@ const HTML_HEAD = `
         }
       }
 
-      // Live front-end search engine script
       function filterTenants() {
         const query = document.getElementById('tenantSearch').value.toLowerCase();
         const items = document.getElementsByClassName('tenant-item');
@@ -231,7 +237,6 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// FIXED BILL GENERATOR: Calculates positive balances (Arrears) AND negative balances (Advances) perfectly
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -244,7 +249,7 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
     
     for (let tenant of tenantsResult.rows) {
-      let carriedBalance = 0; // Positive = Arrears, Negative = Advance Credit
+      let carriedBalance = 0;
 
       const prevInvoiceQuery = await pool.query(`
         SELECT invoices.id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.arrears_brought_forward,
@@ -259,8 +264,6 @@ app.post('/generate-monthly-invoices', async (req, res) => {
       if (prevInvoiceQuery.rows.length > 0) {
         const pInv = prevInvoiceQuery.rows[0];
         const totalChargedLastMonth = Number(pInv.rent_charged) + Number(pInv.maintenance_charged) + Number(pInv.arrears_brought_forward) + Number(pInv.item_extras);
-        
-        // This holds the exact math boundary. If paid > charged, this becomes a negative number (Advance Credit)
         carriedBalance = totalChargedLastMonth - Number(pInv.amount_paid);
       }
 
@@ -364,8 +367,6 @@ app.get('/tenants', async (req, res) => {
     const globalPending = pendingExtrasQuery.rows;
 
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
-    
-    // Core accounting math tracks absolute gross outstanding ledger debt blocks across the building
     const statsOwed = await pool.query(`
       SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
       FROM invoices
@@ -403,7 +404,7 @@ app.get('/tenants', async (req, res) => {
 
       const baseRent = Number(row.rent_charged || 0);
       const maintenance = Number(row.maintenance_charged || 0);
-      const arrears = Number(row.arrears_brought_forward || 0); // Can be positive (arrear) or negative (credit advance)
+      const arrears = Number(row.arrears_brought_forward || 0);
       
       const targetInvoice = baseRent + maintenance + arrears + sumOfActiveExtras;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
@@ -479,7 +480,6 @@ app.get('/tenants', async (req, res) => {
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
-      // ARREARS VS ADVANCE DISPLAY BLOCK
       let rolloverNotificationHTML = '';
       if (arrears > 0) {
         rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward from Last Month: +₹${arrears.toLocaleString('en-IN')}</div>`;
@@ -529,13 +529,14 @@ app.get('/tenants', async (req, res) => {
       dropdownOptions += `<option value="${m}" ${m === selectedMonth ? 'selected' : ''}>${m}</option>`;
     });
 
+    // UPGRADED HEADER: Added the top-nav-box with a direct "🏠 Go to Dashboard" navigation layout shortcut link
     res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
       <h1>
         <span>Monthly Financial Ledgers</span>
-        <div style="font-size:14px; font-weight:normal;">
+        <div class="top-nav-box">
+          <a href="/" class="btn btn-secondary" style="padding:6px 14px; font-size:13px; background:#f8fafc;">🏠 Go to Dashboard</a>
           <form method="GET" action="/tenants" style="margin:0; display:flex; align-items:center; gap:8px;">
-            <label style="margin:0; white-space:nowrap;">Active Statement Month:</label>
-            <select name="month" onchange="this.form.submit()" style="margin:0; padding:6px 12px; width:130px;">${dropdownOptions}</select>
+            <select name="month" onchange="this.form.submit()" style="margin:0; padding:6px 12px; width:130px; font-size:13px;">${dropdownOptions}</select>
           </form>
         </div>
       </h1>

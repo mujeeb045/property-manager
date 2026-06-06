@@ -13,7 +13,6 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
-  // 1. Permanent Tenant Directory
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -30,7 +29,6 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Monthly Invoices Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -43,11 +41,6 @@ async function initDatabase() {
     );
   `);
 
-  // SAFETY RESET: Drop the old transaction logs table if it contains the old legacy schema
-  // This allows PostgreSQL to re-create it with the correct invoice relationship columns.
-  await pool.query(`DROP TABLE IF EXISTS payment_logs CASCADE;`);
-
-  // 3. Re-build fresh Payment History Table matching our relational invoicing engine
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -99,6 +92,11 @@ const HTML_HEAD = `
       .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
       .history-item { font-size: 12px; color: #334155; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
       .history-item:last-child { border-bottom: none; }
+      
+      /* New Search Bar Styling Box */
+      .search-box { position: relative; margin-bottom: 20px; }
+      .search-box input { padding: 12px 16px 12px 40px; font-size: 15px; border-radius: 8px; background-color: #f1f5f9; border-color: #e2e8f0; }
+      .search-box::before { content: "🔍"; position: absolute; left: 14px; top: 11px; font-size: 16px; color: #64748b; }
     </style>
     <script>
       function toggleReveal(id, actualValue) {
@@ -109,6 +107,23 @@ const HTML_HEAD = `
         } else {
           element.innerText = '•••• •••• ••••';
           element.style.color = '#64748b';
+        }
+      }
+
+      // NEW CLIENT-SIDE SEARCH FILTER ALGORITHM
+      function filterTenants() {
+        const query = document.getElementById('tenantSearch').value.toLowerCase();
+        const items = document.getElementsByClassName('tenant-item');
+        
+        for (let i = 0; i < items.length; i++) {
+          // Pull names, units, and phone numbers stored inside the searchable attributes
+          const searchContent = items[i].getAttribute('data-search').toLowerCase();
+          
+          if (searchContent.includes(query)) {
+            items[i].style.display = 'flex'; // Show card
+          } else {
+            items[i].style.display = 'none'; // Hide card
+          }
         }
       }
     </script>
@@ -278,8 +293,11 @@ app.get('/tenants', async (req, res) => {
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
+      // Construct a single searchable metadata string for this row card
+      const searchMetadata = `${row.name} ${row.unit} ${row.phone} ${row.father_name}`;
+
       tenantRows += `
-        <li class="tenant-item">
+        <li class="tenant-item" data-search="${searchMetadata}">
           <div class="item-header">
             <div><strong>👤 ${row.name}</strong> — <span style="color:#2563eb; font-weight:600;">Unit ${row.unit}</span> ${statusBadge}</div>
             <div class="actions">${paymentForm} ${receiptButton}</div>
@@ -320,6 +338,10 @@ app.get('/tenants', async (req, res) => {
       <div class="flex-stats">
         <div class="stat-card stat-card-paid"><small>Total Collected (${selectedMonth})</small><h2>₹${grossCollected.toLocaleString('en-IN')}</h2></div>
         <div class="stat-card stat-card-unpaid"><small>Outstanding Dues (${selectedMonth})</small><h2>₹${grossOutstanding.toLocaleString('en-IN')}</h2></div>
+      </div>
+
+      <div class="search-box">
+        <input type="text" id="tenantSearch" onkeyup="filterTenants()" placeholder="Search by Tenant Name, Unit Number, Father's name, or Phone...">
       </div>
 
       <h3>Billing Ledger Roll - ${selectedMonth}</h3>

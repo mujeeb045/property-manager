@@ -41,6 +41,11 @@ async function initDatabase() {
     );
   `);
 
+  // NEW COLUMN: Keeps track of legacy debt brought forward from past month statements
+  await pool.query(`
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS arrears_brought_forward NUMERIC DEFAULT 0;
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -60,6 +65,12 @@ async function initDatabase() {
   `);
 }
 initDatabase().catch(err => console.error("Database setup failed:", err));
+
+// Helper map to look backward exactly 1 calendar cycle
+const PREVIOUS_MONTH_MAP = {
+  "Jan": "Dec", "Feb": "Jan", "Mar": "Feb", "Apr": "Mar", "May": "Apr", "Jun": "May",
+  "Jul": "Jun", "Aug": "Jul", "Sep": "Aug", "Oct": "Sep", "Nov": "Oct", "Dec": "Nov"
+};
 
 const HTML_HEAD = `
   <head>
@@ -112,7 +123,6 @@ const HTML_HEAD = `
       .charge-tag { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
       .charge-tag-delete { color: #ef4444; font-weight: bold; border: none; background: none; padding: 0; font-size: 14px; cursor: pointer; }
       
-      /* New configuration header subbox styling */
       .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 25px; }
       .batch-billing-panel div { display: flex; flex-direction: column; gap: 4px; }
       .batch-billing-panel select, .batch-billing-panel input { margin-bottom: 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; border: none; width: auto; }
@@ -142,24 +152,20 @@ const HTML_HEAD = `
         }
       }
 
-      // POPUP PROTECTION: Halts accidental generation clicks by prompting the user
       function confirmBatchGeneration() {
         const selectedMonth = document.getElementById('targetMonth').value;
         const selectedYear = document.getElementById('targetYear').value;
         const targetString = selectedMonth + ' ' + selectedYear;
-        
-        return confirm('⚠️ Are you sure you want to generate monthly recurring rent & maintenance bills for [' + targetString + ']? Only click OK if you intend to run this month cycle.');
+        return confirm('⚠️ Are you sure you want to generate monthly recurring rent & maintenance bills for [' + targetString + ']? Outstanding arrears from previous cycles will carry forward dynamically.');
       }
     </script>
   </head>
 `;
 
-// 1. Dashboard View with Custom Month Generation Config Box
 app.get('/', (req, res) => {
-  // Get defaults based on active Indian Standard Time (IST) calendar values
   const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' }); // e.g., "Jun"
-  const currentYear = nowIST.getFullYear(); // e.g., 2026
+  const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
+  const currentYear = nowIST.getFullYear();
 
   const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   let monthOptionsHTML = '';
@@ -231,20 +237,51 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
-// UPGRADED ACTION ROUTE: Absorbs incoming custom target configurations dynamically
+// UPGRADED RECURRING BILL GENERATOR ROUTE WITH INTELLIGENT ARREARS CALCULATION LOGIC
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
-    const billingMonth = `${targetMonth} ${targetYear}`; // e.g., "Jul 2026"
+    const billingMonth = `${targetMonth} ${targetYear}`;
     
+    // Calculate what previous month context label would look like (accounting for year boundaries)
+    const prevMonthShort = PREVIOUS_MONTH_MAP[targetMonth];
+    const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
+    const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
+
     const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
     
     for (let tenant of tenantsResult.rows) {
+      let carriedArrears = 0;
+
+      // Look back into past invoices for this tenant to catch open statements
+      const prevInvoiceQuery = await pool.query(`
+        SELECT invoices.id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.arrears_brought_forward,
+               COALESCE(extras.extra_sum, 0) as item_extras
+        FROM invoices
+        LEFT JOIN (
+          SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items GROUP BY invoice_id
+        ) extras ON invoices.id = extras.invoice_id
+        WHERE invoices.tenant_id = $1 AND invoices.billing_month = $2
+      `, [tenant.id, previousMonthLabel]);
+
+      if (prevInvoiceQuery.rows.length > 0) {
+        const pInv = prevInvoiceQuery.rows[0];
+        const totalChargedLastMonth = Number(pInv.rent_charged) + Number(pInv.maintenance_charged) + Number(pInv.arrears_brought_forward) + Number(pInv.item_extras);
+        const outstandingLastMonth = totalChargedLastMonth - Number(pInv.amount_paid);
+        
+        // If they still owe money, drop it straight into the carried arrears balance pool
+        if (outstandingLastMonth > 0) {
+          carriedArrears = outstandingLastMonth;
+        }
+      }
+
+      // Generate invoice with arrears tracked natively
       await pool.query(`
-        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid)
-        VALUES ($1, $2, $3, $4, 0)
-        ON CONFLICT (tenant_id, billing_month) DO NOTHING
-      `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount]);
+        INSERT INTO invoices (tenant_id, billing_month, rent_charged, maintenance_charged, amount_paid, arrears_brought_forward)
+        VALUES ($1, $2, $3, $4, 0, $5)
+        ON CONFLICT (tenant_id, billing_month) DO UPDATE 
+        SET arrears_brought_forward = $5 -- Update if generated again
+      `, [tenant.id, billingMonth, tenant.rent_amount, tenant.maintenance_amount, carriedArrears]);
     }
     
     res.redirect('/tenants?month=' + encodeURIComponent(billingMonth));
@@ -317,8 +354,10 @@ app.get('/tenants', async (req, res) => {
     const globalExtras = allExtrasQuery.rows;
 
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
+    
+    // Total Global outstanding math adjusted to sum rent + maintenance + arrears + itemized repairs
     const statsOwed = await pool.query(`
-      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
+      SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(arrears_brought_forward,0) + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
       FROM invoices
       LEFT JOIN (
         SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items GROUP BY invoice_id
@@ -335,7 +374,7 @@ app.get('/tenants', async (req, res) => {
     if (!availableMonths.includes(selectedMonth)) availableMonths.push(selectedMonth);
 
     const ledgerResult = await pool.query(`
-      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month,
+      SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month, invoices.arrears_brought_forward,
              tenants.id AS tenant_id, tenants.name, tenants.unit, tenants.father_name, tenants.phone, tenants.id_card_no, tenants.unit_area, tenants.security_deposit
       FROM invoices
       JOIN tenants ON invoices.tenant_id = tenants.id
@@ -353,14 +392,16 @@ app.get('/tenants', async (req, res) => {
 
       const baseRent = Number(row.rent_charged || 0);
       const maintenance = Number(row.maintenance_charged || 0);
+      const arrears = Number(row.arrears_brought_forward || 0);
       
-      const targetInvoice = baseRent + maintenance + sumOfExtras;
+      const targetInvoice = baseRent + maintenance + arrears + sumOfExtras;
       const remainingBalance = targetInvoice - Number(row.amount_paid);
       const clearIdString = String(row.id_card_no || '').replace(/'/g, "\\'");
 
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
       const fmtRent = baseRent.toLocaleString('en-IN');
       const fmtMaint = maintenance.toLocaleString('en-IN');
+      const fmtArrears = arrears.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
@@ -433,9 +474,10 @@ app.get('/tenants', async (req, res) => {
             <div>🔒 <strong>Aadhaar Number:</strong> <span id="id-container-${row.tenant_id}">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${row.tenant_id}', '${clearIdString}')">(Reveal)</span></div>
             <div>💰 <strong>Security Deposit:</strong> ₹${fmtDeposit}</div>
             <div>📐 <strong>Area:</strong> ${row.unit_area} Sq. Ft.</div>
-            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Added Extras: ₹${sumOfExtras.toLocaleString('en-IN')})</div>
+            <div>📊 <strong>Month Assessment:</strong> Total: ₹${fmtInvoice} (Rent: ₹${fmtRent} + Maint: ₹${fmtMaint} + Arrears: ₹${fmtArrears} + Extras: ₹${sumOfExtras.toLocaleString('en-IN')})</div>
           </div>
           
+          ${arrears > 0 ? `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Brought Forward from Last Month: +₹${fmtArrears}</div>` : ''}
           ${chargeTagsHTML ? `<div class="charge-tag-list">${chargeTagsHTML}</div>` : ''}
           
           <div style="font-size:13px; margin-top:8px; font-weight:600; color:#10b981;">Total Paid This Month: ₹${fmtPaid}</div>
@@ -451,7 +493,7 @@ app.get('/tenants', async (req, res) => {
     });
 
     let dropdownOptions = '';
-    availableMonths.sort((a, b) => new Date(b) - new Date(a)); // Sort months chronologically backwards
+    availableMonths.sort((a, b) => new Date(b) - new Date(a));
     availableMonths.forEach(m => {
       dropdownOptions += `<option value="${m}" ${m === selectedMonth ? 'selected' : ''}>${m}</option>`;
     });
@@ -505,7 +547,8 @@ app.get('/invoice/:invoiceId', async (req, res) => {
 
     const baseRent = Number(inv.rent_charged || 0);
     const maintenance = Number(inv.maintenance_charged || 0);
-    const totalCharged = baseRent + maintenance + sumOfExtras;
+    const arrears = Number(inv.arrears_brought_forward || 0);
+    const totalCharged = baseRent + maintenance + arrears + sumOfExtras;
     const balance = totalCharged - Number(inv.amount_paid);
 
     let itemizedRowsHTML = '';
@@ -517,6 +560,16 @@ app.get('/invoice/:invoiceId', async (req, res) => {
         </tr>
       `;
     });
+
+    let arrearsRowHTML = '';
+    if (arrears > 0) {
+      arrearsRowHTML = `
+        <tr style="color: #b91c1c; background: #fef2f2;">
+          <td>⚠️ Unpaid Arrears Carried Forward from Past Month Balance</td>
+          <td style="text-align: right; font-weight: 600;">₹${arrears.toLocaleString('en-IN')}</td>
+        </tr>
+      `;
+    }
 
     res.send(`
       <!DOCTYPE html>
@@ -576,6 +629,7 @@ app.get('/invoice/:invoiceId', async (req, res) => {
                 <td>Common Area Maintenance Expenses</td>
                 <td style="text-align: right;">₹${maintenance.toLocaleString('en-IN')}</td>
               </tr>
+              ${arrearsRowHTML}
               ${itemizedRowsHTML}
             </tbody>
           </table>

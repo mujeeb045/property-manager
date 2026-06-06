@@ -41,7 +41,6 @@ async function initDatabase() {
     );
   `);
 
-  // NEW TABLE: Stores unlimited custom ad-hoc charges itemized per invoice
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -109,10 +108,14 @@ const HTML_HEAD = `
       .extra-charge-form { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-end; }
       .extra-charge-form input { margin-bottom: 0; padding: 6px 10px; font-size: 13px; }
       
-      /* New Itemized layout block list */
       .charge-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .charge-tag { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
-      .charge-tag-delete { color: #ef4444; font-weight: bold; text-decoration: none; font-size: 14px; cursor: pointer; }
+      .charge-tag-delete { color: #ef4444; font-weight: bold; border: none; background: none; padding: 0; font-size: 14px; cursor: pointer; }
+      
+      /* New configuration header subbox styling */
+      .batch-billing-panel { background: #1e293b; color: white; padding: 16px 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; font-size: 14px; width: 100%; box-sizing: border-box; margin-bottom: 25px; }
+      .batch-billing-panel div { display: flex; flex-direction: column; gap: 4px; }
+      .batch-billing-panel select, .batch-billing-panel input { margin-bottom: 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; border: none; width: auto; }
     </style>
     <script>
       function toggleReveal(id, actualValue) {
@@ -138,20 +141,48 @@ const HTML_HEAD = `
           }
         }
       }
+
+      // POPUP PROTECTION: Halts accidental generation clicks by prompting the user
+      function confirmBatchGeneration() {
+        const selectedMonth = document.getElementById('targetMonth').value;
+        const selectedYear = document.getElementById('targetYear').value;
+        const targetString = selectedMonth + ' ' + selectedYear;
+        
+        return confirm('⚠️ Are you sure you want to generate monthly recurring rent & maintenance bills for [' + targetString + ']? Only click OK if you intend to run this month cycle.');
+      }
     </script>
   </head>
 `;
 
+// 1. Dashboard View with Custom Month Generation Config Box
 app.get('/', (req, res) => {
-  const currentMonthLabel = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
-  
+  // Get defaults based on active Indian Standard Time (IST) calendar values
+  const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' }); // e.g., "Jun"
+  const currentYear = nowIST.getFullYear(); // e.g., 2026
+
+  const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let monthOptionsHTML = '';
+  monthArray.forEach(m => {
+    monthOptionsHTML += `<option value="${m}" ${m === currentMonthShort ? 'selected' : ''}>${m}</option>`;
+  });
+
   res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">
-    <h1>
-      <span>Property Management Dashboard</span>
-      <form action="/generate-monthly-invoices" method="POST" style="margin: 0;">
-        <button type="submit" class="btn btn-primary" style="background: #0f172a;">⚡ Generate Bills for ${currentMonthLabel}</button>
-      </form>
-    </h1>
+    <h1 style="border-bottom:none; margin-bottom:10px;">Property Management Dashboard</h1>
+
+    <form action="/generate-monthly-invoices" method="POST" onsubmit="return confirmBatchGeneration();" class="batch-billing-panel">
+      <div style="flex:1;">
+        <label style="color:#cbd5e1;">Select Month Cycle</label>
+        <select id="targetMonth" name="targetMonth">${monthOptionsHTML}</select>
+      </div>
+      <div style="flex:1;">
+        <label style="color:#cbd5e1;">Select Year</label>
+        <input type="number" id="targetYear" name="targetYear" value="${currentYear}" min="2020" max="2100" required>
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary" style="background:#10b981; padding:9px 20px;">⚡ Generate Bills</button>
+      </div>
+    </form>
 
     <div class="form-box">
       <h3>➕ Register New Tenant Profile</h3>
@@ -200,9 +231,12 @@ app.post('/add-tenant', async (req, res) => {
   }
 });
 
+// UPGRADED ACTION ROUTE: Absorbs incoming custom target configurations dynamically
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
-    const billingMonth = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
+    const { targetMonth, targetYear } = req.body;
+    const billingMonth = `${targetMonth} ${targetYear}`; // e.g., "Jul 2026"
+    
     const tenantsResult = await pool.query('SELECT id, rent_amount, maintenance_amount FROM tenants');
     
     for (let tenant of tenantsResult.rows) {
@@ -220,7 +254,6 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
-// NEW ACTION ROUTE: Insert a fresh itemized ad-hoc charge into the list
 app.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;
@@ -240,7 +273,6 @@ app.post('/add-extra-item/:invoiceId', async (req, res) => {
   }
 });
 
-// NEW ACTION ROUTE: Remove a specific itemized ad-hoc charge line
 app.post('/delete-extra-item/:itemId', async (req, res) => {
   try {
     const itemId = req.params.itemId;
@@ -273,10 +305,10 @@ app.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
 
 app.get('/tenants', async (req, res) => {
   try {
-    const currentMonthLabel = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', year: 'numeric' });
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const currentMonthLabel = `${nowIST.toLocaleDateString('en-IN', { month: 'short' })} ${nowIST.getFullYear()}`;
     const selectedMonth = req.query.month || currentMonthLabel;
 
-    // Pull ALL extra items globally to distribute down to cards via filtering
     const allExtrasQuery = await pool.query(`
       SELECT invoice_extra_items.* FROM invoice_extra_items
       JOIN invoices ON invoice_extra_items.invoice_id = invoices.id
@@ -285,8 +317,6 @@ app.get('/tenants', async (req, res) => {
     const globalExtras = allExtrasQuery.rows;
 
     const statsCollected = await pool.query("SELECT SUM(COALESCE(amount_paid, 0)) FROM invoices WHERE billing_month = $1", [selectedMonth]);
-    
-    // Complex SQL Math dynamically aggregates base billing + the dynamic sum of itemized extras per tenant
     const statsOwed = await pool.query(`
       SELECT SUM(CASE WHEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) > amount_paid THEN (rent_charged + maintenance_charged + COALESCE(extra_sum, 0)) - amount_paid ELSE 0 END)
       FROM invoices
@@ -302,6 +332,7 @@ app.get('/tenants', async (req, res) => {
     const monthsDropdownResult = await pool.query('SELECT DISTINCT billing_month FROM invoices');
     const availableMonths = monthsDropdownResult.rows.map(r => r.billing_month);
     if (!availableMonths.includes(currentMonthLabel)) availableMonths.unshift(currentMonthLabel);
+    if (!availableMonths.includes(selectedMonth)) availableMonths.push(selectedMonth);
 
     const ledgerResult = await pool.query(`
       SELECT invoices.id AS invoice_id, invoices.rent_charged, invoices.maintenance_charged, invoices.amount_paid, invoices.billing_month,
@@ -317,7 +348,6 @@ app.get('/tenants', async (req, res) => {
 
     let tenantRows = '';
     ledgerResult.rows.forEach(row => {
-      // Filter out itemized extras belonging specifically to this row card
       const myExtras = globalExtras.filter(item => item.invoice_id === row.invoice_id);
       const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);
 
@@ -355,7 +385,6 @@ app.get('/tenants', async (req, res) => {
         </form>
       `;
 
-      // Form to add a brand new itemized row to this specific tenant's invoice
       const extraItemsInputForm = `
         <form action="/add-extra-item/${row.invoice_id}" method="POST" class="extra-charge-form">
           <input type="hidden" name="selectedMonth" value="${selectedMonth}">
@@ -371,7 +400,6 @@ app.get('/tenants', async (req, res) => {
         </form>
       `;
 
-      // Build out the list of visual tags displaying what's been added so far
       let chargeTagsHTML = '';
       myExtras.forEach(item => {
         chargeTagsHTML += `
@@ -379,7 +407,7 @@ app.get('/tenants', async (req, res) => {
             🛠️ <strong>${item.item_desc}:</strong> ₹${Number(item.item_amount).toLocaleString('en-IN')}
             <form action="/delete-extra-item/${item.id}" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Remove this charge item?');">
               <input type="hidden" name="selectedMonth" value="${selectedMonth}">
-              <button type="submit" class="charge-tag-delete" style="background:none; border:none; padding:0; line-height:1;">&times;</button>
+              <button type="submit" class="charge-tag-delete">&times;</button>
             </form>
           </div>
         `;
@@ -423,6 +451,7 @@ app.get('/tenants', async (req, res) => {
     });
 
     let dropdownOptions = '';
+    availableMonths.sort((a, b) => new Date(b) - new Date(a)); // Sort months chronologically backwards
     availableMonths.forEach(m => {
       dropdownOptions += `<option value="${m}" ${m === selectedMonth ? 'selected' : ''}>${m}</option>`;
     });
@@ -449,7 +478,7 @@ app.get('/tenants', async (req, res) => {
 
       <h3>Billing Ledger Roll - ${selectedMonth}</h3>
       <ul class="tenant-list">
-        ${tenantRows || `<li class="tenant-item" style="color:#64748b; text-align:center;">No bills generated for ${selectedMonth} yet. Go back to Dashboard and click 'Generate Bills'.</li>`}
+        ${tenantRows || `<li class="tenant-item" style="color:#64748b; text-align:center;">No bills generated for ${selectedMonth} yet. Go back to Dashboard and select a cycle to generate.</li>`}
       </ul>
       <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:20px;"><a href="/" class="btn btn-secondary">← Back to Dashboard Input</a></div>
     </div></body></html>`);
@@ -470,7 +499,6 @@ app.get('/invoice/:invoiceId', async (req, res) => {
     if (invoiceQuery.rows.length === 0) return res.status(404).send("Invoice Statement Not Found.");
     const inv = invoiceQuery.rows[0];
     
-    // Fetch individual itemized lines for this printable statement invoice
     const extrasQuery = await pool.query('SELECT * FROM invoice_extra_items WHERE invoice_id = $1', [invoiceId]);
     const myExtras = extrasQuery.rows;
     const sumOfExtras = myExtras.reduce((sum, item) => sum + Number(item.item_amount), 0);

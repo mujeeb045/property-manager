@@ -6,12 +6,7 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
-  // Wipes legacy test table data layouts
-  await pool.query(`DROP TABLE IF EXISTS payment_logs CASCADE;`);
-  await pool.query(`DROP TABLE IF EXISTS invoice_extra_items CASCADE;`);
-  await pool.query(`DROP TABLE IF EXISTS invoices CASCADE;`);
-  await pool.query(`DROP TABLE IF EXISTS tenants CASCADE;`);
-
+  // 1. Permanent Portions / Units Asset Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS units (
       id SERIAL PRIMARY KEY,
@@ -23,6 +18,7 @@ async function initDatabase() {
     );
   `);
 
+  // 2. Permanent Tenant Profiles
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -36,6 +32,7 @@ async function initDatabase() {
     );
   `);
 
+  // 3. Monthly Invoice Records Sheet
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -49,6 +46,7 @@ async function initDatabase() {
     );
   `);
 
+  // 4. Itemized Maintenance Items Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -59,6 +57,7 @@ async function initDatabase() {
     );
   `);
 
+  // 5. Audit logs transaction ledger trail
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -67,8 +66,18 @@ async function initDatabase() {
       payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // 🛠️ AUTOMATED DATA INTEGRITY REPAIR SCRIPT
+  // This looks for any units marked as occupied that don't actually link to an existing tenant,
+  // and safely opens them back up to 'Vacant' status so you can delete or re-allocate them!
+  await pool.query(`
+    UPDATE units 
+    SET is_occupied = FALSE 
+    WHERE id NOT IN (SELECT DISTINCT unit_id FROM tenants WHERE unit_id IS NOT NULL);
+  `);
+  console.log("🛠️ Database integrity check complete: Ghost occupancy flags repaired successfully.");
 }
 
-initDatabase().catch(err => console.error("Database initialization failed:", err));
+initDatabase().catch(err => console.error("Database asset registry failed to sync:", err));
 
 module.exports = pool;

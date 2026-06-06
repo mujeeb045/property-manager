@@ -13,11 +13,18 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
+  // SAFETY CLEANUP RESET: Drop old schema configurations if they mismatch the brand new portions tracking engine
+  // This flushes out the old legacy text columns and allows Postgres to compile the clean relational tables safely.
+  await pool.query(`DROP TABLE IF EXISTS payment_logs CASCADE;`);
+  await pool.query(`DROP TABLE IF EXISTS invoice_extra_items CASCADE;`);
+  await pool.query(`DROP TABLE IF EXISTS invoices CASCADE;`);
+  await pool.query(`DROP TABLE IF EXISTS tenants CASCADE;`);
+
   // 1. Permanent Portions / Units Asset Inventory Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS units (
       id SERIAL PRIMARY KEY,
-      unit_name TEXT UNIQUE NOT NULL, -- e.g., "Flat 101", "Portion A"
+      unit_name TEXT UNIQUE NOT NULL,
       unit_area NUMERIC DEFAULT 0,
       rent_amount NUMERIC DEFAULT 0,
       maintenance_amount NUMERIC DEFAULT 0,
@@ -25,11 +32,11 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Permanent Tenant Profiles (Linked directly to a portion asset record)
+  // 2. Permanent Tenant Profiles (Linked cleanly via foreign key relationships)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
-      unit_id INTEGER UNIQUE REFERENCES units(id) ON DELETE SET NULL, -- One tenant per portion layout rule
+      unit_id INTEGER UNIQUE REFERENCES units(id) ON DELETE SET NULL,
       name TEXT NOT NULL,
       father_name TEXT,
       phone TEXT,
@@ -39,6 +46,7 @@ async function initDatabase() {
     );
   `);
 
+  // 3. Monthly Invoice Records Sheet
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -52,6 +60,7 @@ async function initDatabase() {
     );
   `);
 
+  // 4. Unlimited Itemized Maintenance Items Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -62,6 +71,7 @@ async function initDatabase() {
     );
   `);
 
+  // 5. Audit logs transaction ledger trail
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -175,14 +185,12 @@ const HTML_HEAD = `
   </head>
 `;
 
-// 1. Control Panel Hub Home (Displays Asset Availability Metrics Natively)
 app.get('/', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
     const currentYear = nowIST.getFullYear();
 
-    // Fetch live asset vacancy status metrics counts
     const countsQuery = await pool.query(`
       SELECT 
         COUNT(*) as total_units,
@@ -249,7 +257,6 @@ app.get('/', async (req, res) => {
   }
 });
 
-// 2. NEW ROUTE: Form view page to add a new physical portion asset rule
 app.get('/add-unit', async (req, res) => {
   try {
     const unitsListQuery = await pool.query('SELECT * FROM units ORDER BY unit_name ASC');
@@ -312,7 +319,6 @@ app.get('/add-unit', async (req, res) => {
   }
 });
 
-// Action post handling route to insert a portion record
 app.post('/save-unit', async (req, res) => {
   try {
     const { unitName, unitArea, rentAmount, maintenanceAmount } = req.body;
@@ -329,10 +335,8 @@ app.post('/save-unit', async (req, res) => {
   }
 });
 
-// 3. Dedicated Tenant Allocation Intake View Page (Pulls Vacant Dropdowns Dynamically)
 app.get('/register-tenant', async (req, res) => {
   try {
-    // Select ONLY vacant portions to assign to the newcomer profile
     const vacantUnitsQuery = await pool.query('SELECT id, unit_name, rent_amount, maintenance_amount, unit_area FROM units WHERE is_occupied = FALSE ORDER BY unit_name ASC');
     let dropdownOptionsHTML = '';
     
@@ -384,18 +388,15 @@ app.get('/register-tenant', async (req, res) => {
   }
 });
 
-// Action handler to insert a tenant profile and flag their assigned unit portion as occupied
 app.post('/allocate-tenant', async (req, res) => {
   try {
     const { unitId, tenantName, fatherName, phone, altPhone, idCardNo, securityDeposit } = req.body;
     
-    // 1. Insert tenant profile block
     await pool.query(`
       INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
     `, [unitId, tenantName, fatherName, phone, altPhone || 'N/A', idCardNo, securityDeposit || 0]);
 
-    // 2. Set portion occupancy status directly to true
     await pool.query('UPDATE units SET is_occupied = TRUE WHERE id = $1', [unitId]);
     
     res.redirect('/');
@@ -405,7 +406,6 @@ app.post('/allocate-tenant', async (req, res) => {
   }
 });
 
-// 4. Billing Engine Calculation Layer (Pulls pricing metrics straight from portion assets)
 app.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { targetMonth, targetYear } = req.body;
@@ -415,7 +415,6 @@ app.post('/generate-monthly-invoices', async (req, res) => {
     const prevYear = (targetMonth === "Jan") ? Number(targetYear) - 1 : targetYear;
     const previousMonthLabel = `${prevMonthShort} ${prevYear}`;
 
-    // Join tenants with units to auto-grab accurate portion billing rules natively
     const activeTenantsResult = await pool.query(`
       SELECT tenants.id as tenant_id, units.rent_amount, units.maintenance_amount 
       FROM tenants JOIN units ON tenants.unit_id = units.id
@@ -466,7 +465,6 @@ app.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
-// 5. Permanent Profile Directory Record Manager view page
 app.get('/manage-profiles', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -481,7 +479,7 @@ app.get('/manage-profiles', async (req, res) => {
       const clearIdString = String(t.id_card_no || '').replace(/'/g, "\\'");
       rowsHTML += `
         <li class="tenant-item" style="margin-bottom:12px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <div style="display:flex; justify-content:space-between; align-items:center; width:100%; justify-content: space-between;">
             <div>
               <strong style="font-size:16px; color:#0f172a;">👤 ${t.name}</strong> — 
               <span style="color:#2563eb; font-weight:600;">Unit ${t.unit_name}</span> (${t.unit_area} Sqft)
@@ -515,7 +513,6 @@ app.get('/manage-profiles', async (req, res) => {
   }
 });
 
-// Action handler to wipe a tenant row and flag their unit back to vacant status
 app.post('/delete-tenant/:id/:unitId', async (req, res) => {
   try {
     const tenantId = req.params.id;
@@ -528,6 +525,35 @@ app.post('/delete-tenant/:id/:unitId', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Profile layout removal operations failed.");
+  }
+});
+
+app.post('/add-extra-item/:invoiceId', async (req, res) => {
+  try {
+    const invoiceId = req.params.invoiceId;
+    const itemDesc = req.body.itemDesc || 'General Maintenance';
+    const itemAmount = Number(req.body.itemAmount || 0);
+    const selectedMonth = req.body.selectedMonth;
+
+    const parts = selectedMonth.split(' ');
+    const currentM = parts[0];
+    const currentY = Number(parts[1]);
+    const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentIndex = monthArray.indexOf(currentM);
+    
+    let nextM = monthArray[(currentIndex + 1) % 12];
+    let nextY = (currentM === "Dec") ? currentY + 1 : currentY;
+    const nextMonthLabel = `${nextM} ${nextY}`;
+
+    await pool.query suicide(`
+      INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount, item_billing_month)
+      VALUES ($1, $2, $3, $4)
+    `, [invoiceId, itemDesc, itemAmount, nextMonthLabel]);
+
+    res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error appending itemized expense.");
   }
 });
 
@@ -588,7 +614,6 @@ app.post('/collect-invoice-payment/:invoiceId', async (req, res) => {
   }
 });
 
-// 6. Master Ledger Directory View (Maps invoice totals accurately across units)
 app.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -654,7 +679,6 @@ app.get('/tenants', async (req, res) => {
       const fmtInvoice = targetInvoice.toLocaleString('en-IN');
       const fmtRent = baseRent.toLocaleString('en-IN');
       const fmtMaint = maintenance.toLocaleString('en-IN');
-      const fmtArrears = arrears.toLocaleString('en-IN');
       const fmtPaid = Number(row.amount_paid).toLocaleString('en-IN');
       const fmtDeposit = Number(row.security_deposit || 0).toLocaleString('en-IN');
 
@@ -722,6 +746,7 @@ app.get('/tenants', async (req, res) => {
         internalLogs += `<div class="history-item"><span>➕ Paid: ₹${Number(l.amount_paid).toLocaleString('en-IN')}</span><span>📅 ${cleanDate}</span></div>`;
       });
 
+      let rolloverNotificationHTML = '';
       if (arrears > 0) {
         rolloverNotificationHTML = `<div style="font-size:12px; margin-top:6px; color:#991b1b; background:#fef2f2; padding:6px 10px; border-radius:4px; font-weight:600;">⚠️ Outstanding Arrears Carried Forward from Last Month: +₹${arrears.toLocaleString('en-IN')}</div>`;
       } else if (arrears < 0) {
@@ -804,7 +829,6 @@ app.get('/tenants', async (req, res) => {
   }
 });
 
-// Printable Invoicing template mapping metrics dynamically straight from unit tables
 app.get('/invoice/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;

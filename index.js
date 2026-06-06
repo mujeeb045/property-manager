@@ -1,13 +1,3 @@
-Ah! Look at the text at the very top of your index.js file. The word "makes" is coming from my introductory sentence from the last message ("That makes complete sense!").
-
-When you copied the code block, some of my regular conversational text accidentally got pasted into the top of the file. Because Node.js doesn't understand plain English text sitting outside of JavaScript, it crashed instantly with an Unexpected identifier error.
-
-Let's fix this completely by giving you a 100% clean code block with zero surrounding text.
-
-The Fix:
-Open your index.js file, erase absolutely everything inside it, and paste this clean code:
-
-JavaScript
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');

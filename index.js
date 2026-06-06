@@ -24,7 +24,6 @@ async function initDatabase() {
     );
   `);
 
-  // NEW: Add columns for all your specific legal & structural requirements
   await pool.query(`
     ALTER TABLE tenants 
     ADD COLUMN IF NOT EXISTS father_name TEXT,
@@ -163,11 +162,7 @@ app.post('/add-tenant', async (req, res) => {
     } = req.body;
 
     await pool.query(
-      \`INSERT INTO tenants (
-        name, father_name, phone, alt_phone, id_card_no, 
-        unit, unit_area, security_deposit, rent_amount, 
-        maintenance_amount, amount_paid
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)\`,
+      'INSERT INTO tenants (name, father_name, phone, alt_phone, id_card_no, unit, unit_area, security_deposit, rent_amount, maintenance_amount, amount_paid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)',
       [
         tenantName, fatherName, phone, altPhone || 'N/A', idCardNo,
         unitNumber, unitArea || 0, securityDeposit || 0, rentAmount || 0,
@@ -228,57 +223,57 @@ app.get('/tenants', async (req, res) => {
 
       let statusBadge = '';
       if (currentPaid === 0) {
-        statusBadge = \`<span class="badge badge-unpaid">Unpaid</span>\`;
+        statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
       } else if (remainingBalanceOwed > 0) {
-        statusBadge = \`<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()})</span>\`;
+        statusBadge = `<span class="badge badge-partial">Partial ($${remainingBalanceOwed.toLocaleString()})</span>`;
       } else {
-        statusBadge = \`<span class="badge badge-paid">Fully Paid</span>\`;
+        statusBadge = `<span class="badge badge-paid">Fully Paid</span>`;
       }
 
       const dynamicPaymentInput = remainingBalanceOwed > 0 
-        ? \`
-          <form action="/collect-payment/\${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
-            <input type="number" name="paymentAmount" class="pay-input" max="\${remainingBalanceOwed}" placeholder="Amt" required>
+        ? `
+          <form action="/collect-payment/${tenant.id}" method="POST" style="margin: 0; display: flex; gap: 6px; align-items: center;">
+            <input type="number" name="paymentAmount" class="pay-input" max="${remainingBalanceOwed}" placeholder="Amt" required>
             <button type="submit" class="btn btn-success" style="padding: 6px 10px;">Pay</button>
           </form>
-        \`
-        : \`<span style="color: #10b981; font-weight: 600; font-size: 13px;">Cleared</span>\`;
+        `
+        : `<span style="color: #10b981; font-weight: 600; font-size: 13px;">Cleared</span>`;
 
-      tenantRows += \`
+      tenantRows += `
         <li class="tenant-item">
           <div class="tenant-info">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <strong>👤 \${tenant.name}</strong> 
-              \${statusBadge}
+              <strong>👤 ${tenant.name}</strong> 
+              ${statusBadge}
             </div>
             
             <div class="meta-grid">
-              <div>🏠 <strong>Unit:</strong> \${tenant.unit} (\${tenant.unit_area} Sq. Ft.)</div>
-              <div>💼 <strong>Father's Name:</strong> \${tenant.father_name}</div>
-              <div>📞 <strong>Primary Phone:</strong> \${tenant.phone}</div>
+              <div>🏠 <strong>Unit:</strong> ${tenant.unit} (${tenant.unit_area} Sq. Ft.)</div>
+              <div>💼 <strong>Father's Name:</strong> ${tenant.father_name}</div>
+              <div>📞 <strong>Primary Phone:</strong> ${tenant.phone}</div>
               <div>🔒 <strong>Identity Verification:</strong> <span style="color: #0284c7; font-weight:600;">[ Aadhaar Saved ✅ ]</span></div>
-              <div>💰 <strong>Security Deposit:</strong> $\${Number(tenant.security_deposit).toLocaleString()}</div>
-              <div>📊 <strong>Invoice Target:</strong> $\${totalTargetInvoice.toLocaleString()} (Rent: $\${baseRent} + Maint: $\${maintenance})</div>
+              <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit).toLocaleString()}</div>
+              <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
             </div>
             
             <div style="font-size: 13px; color: #1e293b; margin-top: 8px; font-weight: 500;">
-              Total Paid Current Month: <span style="color: #10b981; font-weight:700;">$\${currentPaid.toLocaleString()}</span>
+              Total Paid Current Month: <span style="color: #10b981; font-weight:700;">$${currentPaid.toLocaleString()}</span>
             </div>
           </div>
           <div class="actions">
-            \${dynamicPaymentInput}
-            <form action="/delete-tenant/\${tenant.id}" method="POST" style="margin: 0;">
+            ${dynamicPaymentInput}
+            <form action="/delete-tenant/${tenant.id}" method="POST" style="margin: 0;">
               <button type="submit" class="btn btn-danger">🗑️</button>
             </form>
           </div>
         </li>
-      \`;
+      `;
     });
 
-    res.send(\`
+    res.send(`
       <!DOCTYPE html>
       <html>
-        \${HTML_HEAD}
+        ${HTML_HEAD}
         <body>
           <div class="container">
             <h1>Master Directory & Business Ledgers</h1>
@@ -286,17 +281,17 @@ app.get('/tenants', async (req, res) => {
             <div class="flex-stats">
               <div class="stat-card stat-card-paid">
                 <small>Gross Collections</small>
-                <h2>$\${grossCollected.toLocaleString()}</h2>
+                <h2>$${grossCollected.toLocaleString()}</h2>
               </div>
               <div class="stat-card stat-card-unpaid">
                 <small>Total Dues Outstanding</small>
-                <h2>$\${grossOutstanding.toLocaleString()}</h2>
+                <h2>$${grossOutstanding.toLocaleString()}</h2>
               </div>
             </div>
 
             <h3 style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Active Records Ledger</h3>
             <ul class="tenant-list">
-              \${tenantRows || '<li class="tenant-item">No active leasing portfolios found.</li>'}
+              ${tenantRows || '<li class="tenant-item">No active leasing portfolios found.</li>'}
             </ul>
             
             <div style="margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 20px;">
@@ -305,7 +300,7 @@ app.get('/tenants', async (req, res) => {
           </div>
         </body>
       </html>
-    \`);
+    `);
   } catch (err) {
     console.error(err);
     res.status(500).send("Error reading master dashboard calculations.");
@@ -313,5 +308,5 @@ app.get('/tenants', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(\`Server is running on http://localhost:\${PORT}\`);
+  console.log(`Server is running on http://localhost:${PORT}`);
 });

@@ -68,7 +68,23 @@ const HTML_HEAD = `
       .badge-unpaid { background: #ffeeeb; color: #b91c1c; }
       .pay-input { width: 90px; padding: 6px; margin: 0; font-size: 13px; border-radius: 4px; border: 1px solid #cbd5e1; }
       .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 15px; font-size: 13px; color: #64748b; margin-top: 6px; }
+      
+      /* Secret reveal link style */
+      .reveal-link { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; font-size: 13px; }
     </style>
+    
+    <script>
+      function toggleReveal(id, actualValue) {
+        const element = document.getElementById('id-container-' + id);
+        if (element.innerText.includes('•')) {
+          element.innerText = actualValue;
+          element.style.color = '#0f172a';
+        } else {
+          element.innerText = '•••• •••• ••••';
+          element.style.color = '#64748b';
+        }
+      }
+    </script>
   </head>
 `;
 
@@ -221,6 +237,9 @@ app.get('/tenants', async (req, res) => {
       const totalTargetInvoice = baseRent + maintenance;
       const remainingBalanceOwed = totalTargetInvoice - currentPaid;
 
+      // Clean string preparation for JavaScript safety
+      const clearIdString = String(tenant.id_card_no || '').replace(/'/g, "\\'");
+
       let statusBadge = '';
       if (currentPaid === 0) {
         statusBadge = `<span class="badge badge-unpaid">Unpaid</span>`;
@@ -251,7 +270,12 @@ app.get('/tenants', async (req, res) => {
               <div>🏠 <strong>Unit:</strong> ${tenant.unit} (${tenant.unit_area} Sq. Ft.)</div>
               <div>💼 <strong>Father's Name:</strong> ${tenant.father_name}</div>
               <div>📞 <strong>Primary Phone:</strong> ${tenant.phone}</div>
-              <div>🔒 <strong>Identity Verification:</strong> <span style="color: #0284c7; font-weight:600;">[ Aadhaar Saved ✅ ]</span></div>
+              
+              <div>🔒 <strong>Identity Verification:</strong> 
+                <span id="id-container-${tenant.id}" style="font-weight: 600; letter-spacing: 0.05em;">•••• •••• ••••</span> 
+                <span class="reveal-link" onclick="toggleReveal('${tenant.id}', '${clearIdString}')">(Reveal)</span>
+              </div>
+              
               <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit).toLocaleString()}</div>
               <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
             </div>

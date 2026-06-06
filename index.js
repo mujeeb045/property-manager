@@ -13,6 +13,7 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
+  // 1. Core Tenants Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -20,18 +21,24 @@ async function initDatabase() {
       unit TEXT NOT NULL,
       rent_amount NUMERIC DEFAULT 0,
       maintenance_amount NUMERIC DEFAULT 0,
-      amount_paid NUMERIC DEFAULT 0
+      amount_paid NUMERIC DEFAULT 0,
+      father_name TEXT,
+      phone TEXT,
+      alt_phone TEXT,
+      id_card_no TEXT,
+      unit_area NUMERIC DEFAULT 0,
+      security_deposit NUMERIC DEFAULT 0
     );
   `);
 
+  // 2. NEW: Individual Payment History Table (Linked to tenants via tenant_id)
   await pool.query(`
-    ALTER TABLE tenants 
-    ADD COLUMN IF NOT EXISTS father_name TEXT,
-    ADD COLUMN IF NOT EXISTS phone TEXT,
-    ADD COLUMN IF NOT EXISTS alt_phone TEXT,
-    ADD COLUMN IF NOT EXISTS id_card_no TEXT,
-    ADD COLUMN IF NOT EXISTS unit_area NUMERIC DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS security_deposit NUMERIC DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS payment_logs (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+      amount_paid NUMERIC NOT NULL,
+      payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }
 initDatabase().catch(err => console.error("Database setup failed:", err));
@@ -60,19 +67,22 @@ const HTML_HEAD = `
       .stat-card-paid { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
       .stat-card-unpaid { background: #fef2f2; border-left-color: #ef4444; color: #991b1b; }
       .tenant-list { list-style: none; padding: 0; margin: 0; }
-      .tenant-item { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #f1f5f9; }
-      .actions { display: flex; align-items: center; gap: 12px; }
+      .tenant-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 20px; border-bottom: 1px solid #f1f5f9; gap: 20px; }
+      .actions { display: flex; align-items: center; gap: 12px; margin-top: 5px; }
       .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
       .badge-paid { background: #d1fae5; color: #065f46; }
       .badge-partial { background: #ffedd5; color: #9a3412; }
       .badge-unpaid { background: #ffeeeb; color: #b91c1c; }
       .pay-input { width: 90px; padding: 6px; margin: 0; font-size: 13px; border-radius: 4px; border: 1px solid #cbd5e1; }
       .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 15px; font-size: 13px; color: #64748b; margin-top: 6px; }
-      
-      /* Secret reveal link style */
       .reveal-link { color: #2563eb; cursor: pointer; font-weight: 600; text-decoration: underline; font-size: 13px; }
+      
+      /* New History Box Styling */
+      .history-box { margin-top: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; max-height: 120px; overflow-y: auto; width: 100%; box-sizing: border-box; }
+      .history-title { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block; }
+      .history-item { font-size: 12px; color: #334155; padding: 3px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; }
+      .history-item:last-child { border-bottom: none; }
     </style>
-    
     <script>
       function toggleReveal(id, actualValue) {
         const element = document.getElementById('id-container-' + id);
@@ -90,118 +100,43 @@ const HTML_HEAD = `
 
 // 1. Intake Dashboard View
 app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-      ${HTML_HEAD}
-      <body>
-        <div class="container">
-          <h1>Property Management Dashboard</h1>
-          <div class="form-box">
-            <h3>📋 Comprehensive Tenant Intake Form</h3>
-            <form action="/add-tenant" method="POST">
-              
-              <div class="form-grid">
-                <div>
-                  <label>Tenant Name</label>
-                  <input type="text" name="tenantName" placeholder="Full Name" required>
-                </div>
-                <div>
-                  <label>Father's Name</label>
-                  <input type="text" name="fatherName" placeholder="Father's Full Name" required>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div>
-                  <label>Primary Phone Number</label>
-                  <input type="tel" name="phone" placeholder="e.g. 9876543210" required>
-                </div>
-                <div>
-                  <label>Alternate Phone Number</label>
-                  <input type="tel" name="altPhone" placeholder="Emergency Contact">
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div>
-                  <label>Aadhaar Card Number</label>
-                  <input type="text" name="idCardNo" placeholder="12-Digit Number" required>
-                </div>
-                <div>
-                  <label>Unit Allocated</label>
-                  <input type="text" name="unitNumber" placeholder="e.g. Flat 302" required>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div>
-                  <label>Area of Unit (Sq. Ft.)</label>
-                  <input type="number" name="unitArea" placeholder="e.g. 1250" required>
-                </div>
-                <div>
-                  <label>Security Deposit Paid ($)</label>
-                  <input type="number" name="securityDeposit" placeholder="e.g. 25000" required>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div>
-                  <label>Monthly Base Rent ($)</label>
-                  <input type="number" name="rentAmount" placeholder="e.g. 15000" required>
-                </div>
-                <div>
-                  <label>Monthly Maintenance Charges ($)</label>
-                  <input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required>
-                </div>
-              </div>
-
-              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button>
-            </form>
-          </div>
-          <div style="text-align: center;">
-            <a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Tenant Master Directory & Ledgers</a>
-          </div>
-        </div>
-      </body>
-    </html>
-  `);
+  res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Property Management Dashboard</h1><div class="form-box"><h3>📋 Comprehensive Tenant Intake Form</h3><form action="/add-tenant" method="POST"><div class="form-grid"><div><label>Tenant Name</label><input type="text" name="tenantName" placeholder="Full Name" required></div><div><label>Father's Name</label><input type="text" name="fatherName" placeholder="Father's Full Name" required></div></div><div class="form-grid"><div><label>Primary Phone Number</label><input type="tel" name="phone" placeholder="e.g. 9876543210" required></div><div><label>Alternate Phone Number</label><input type="tel" name="altPhone" placeholder="Emergency Contact"></div></div><div class="form-grid"><div><label>Aadhaar Card Number</label><input type="text" name="idCardNo" placeholder="12-Digit Number" required></div><div><label>Unit Allocated</label><input type="text" name="unitNumber" placeholder="e.g. Flat 302" required></div></div><div class="form-grid"><div><label>Area of Unit (Sq. Ft.)</label><input type="number" name="unitArea" placeholder="e.g. 1250" required></div><div><label>Security Deposit Paid ($)</label><input type="number" name="securityDeposit" placeholder="e.g. 25000" required></div></div><div class="form-grid"><div><label>Monthly Base Rent ($)</label><input type="number" name="rentAmount" placeholder="e.g. 15000" required></div><div><label>Monthly Maintenance Charges ($)</label><input type="number" name="maintenanceAmount" placeholder="e.g. 2000" required></div></div><button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Register Tenant & Open Account</button></form></div><div style="text-align: center;"><a href="/tenants" class="btn btn-secondary" style="width: 100%; box-sizing: border-box; padding: 12px;">📂 Access Tenant Master Directory & Ledgers</a></div></div></body></html>`);
 });
 
-// 2. Process All Details and Store Safely
+// 2. Add Tenant
 app.post('/add-tenant', async (req, res) => {
   try {
-    const { 
-      tenantName, fatherName, phone, altPhone, 
-      idCardNo, unitNumber, unitArea, securityDeposit, 
-      rentAmount, maintenanceAmount 
-    } = req.body;
-
+    const { tenantName, fatherName, phone, altPhone, idCardNo, unitNumber, unitArea, securityDeposit, rentAmount, maintenanceAmount } = req.body;
     await pool.query(
       'INSERT INTO tenants (name, father_name, phone, alt_phone, id_card_no, unit, unit_area, security_deposit, rent_amount, maintenance_amount, amount_paid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)',
-      [
-        tenantName, fatherName, phone, altPhone || 'N/A', idCardNo,
-        unitNumber, unitArea || 0, securityDeposit || 0, rentAmount || 0,
-        maintenanceAmount || 0
-      ]
+      [tenantName, fatherName, phone, altPhone || 'N/A', idCardNo, unitNumber, unitArea || 0, securityDeposit || 0, rentAmount || 0, maintenanceAmount || 0]
     );
     res.redirect('/tenants');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error compiling complete profile schema.");
+    res.status(500).send("Error saving profile.");
   }
 });
 
-// 3. Collect Ledger Updates
+// 3. Collect Payment AND Log History Statement
 app.post('/collect-payment/:id', async (req, res) => {
   try {
     const tenantId = req.params.id;
     const paymentAmount = Number(req.body.paymentAmount || 0);
+
+    // Update main total pool
     await pool.query('UPDATE tenants SET amount_paid = amount_paid + $1 WHERE id = $2', [paymentAmount, tenantId]);
+
+    // NEW: Insert a detailed audit footprint tracking amount and date
+    await pool.query(
+      'INSERT INTO payment_logs (tenant_id, amount_paid) VALUES ($1, $2)',
+      [tenantId, paymentAmount]
+    );
+
     res.redirect('/tenants');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Processing statement failed.");
+    res.status(500).send("Processing payment entry failed.");
   }
 });
 
@@ -213,11 +148,11 @@ app.post('/delete-tenant/:id', async (req, res) => {
     res.redirect('/tenants');
   } catch (err) {
     console.error(err);
-    res.status(500).send("Eviction logging failed.");
+    res.status(500).send("Deletion failed.");
   }
 });
 
-// 5. Master Directory View 
+// 5. Master Ledger with Nested Audit Trail Loops
 app.get('/tenants', async (req, res) => {
   try {
     const totalCollectedQuery = await pool.query("SELECT SUM(amount_paid) FROM tenants");
@@ -229,6 +164,10 @@ app.get('/tenants', async (req, res) => {
     const result = await pool.query('SELECT * FROM tenants ORDER BY id DESC');
     const tenantsFromDb = result.rows;
 
+    // Grab ALL transaction statement rows from the database globally
+    const logHistoryResult = await pool.query('SELECT * FROM payment_logs ORDER BY payment_date DESC');
+    const globalLogs = logHistoryResult.rows;
+
     let tenantRows = '';
     tenantsFromDb.forEach(tenant => {
       const baseRent = Number(tenant.rent_amount || 0);
@@ -237,7 +176,6 @@ app.get('/tenants', async (req, res) => {
       const totalTargetInvoice = baseRent + maintenance;
       const remainingBalanceOwed = totalTargetInvoice - currentPaid;
 
-      // Clean string preparation for JavaScript safety
       const clearIdString = String(tenant.id_card_no || '').replace(/'/g, "\\'");
 
       let statusBadge = '';
@@ -258,76 +196,68 @@ app.get('/tenants', async (req, res) => {
         `
         : `<span style="color: #10b981; font-weight: 600; font-size: 13px;">Cleared</span>`;
 
+      // FILTER TRANSACTIONS: Grab history items belonging ONLY to this tenant
+      let internalHistoryItems = '';
+      const tenantLogs = globalLogs.filter(log => log.tenant_id === tenant.id);
+      
+      tenantLogs.forEach(log => {
+        // Format SQL raw timestamp into clean human-readable text
+        const cleanDate = new Date(log.payment_date).toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        internalHistoryItems += `
+          <div class="history-item">
+            <span>➕ Received: $${Number(log.amount_paid).toLocaleString()}</span>
+            <span style="color: #64748b;">📅 ${cleanDate}</span>
+          </div>
+        `;
+      });
+
+      const historyWrapper = `
+        <div class="history-box">
+          <span class="history-title">📜 Payment History Log</span>
+          ${internalHistoryItems || '<div style="font-size: 11px; color:#94a3b8;">No payments recorded yet.</div>'}
+        </div>
+      `;
+
       tenantRows += `
-        <li class="tenant-item">
-          <div class="tenant-info">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <strong>👤 ${tenant.name}</strong> 
-              ${statusBadge}
-            </div>
-            
-            <div class="meta-grid">
-              <div>🏠 <strong>Unit:</strong> ${tenant.unit} (${tenant.unit_area} Sq. Ft.)</div>
-              <div>💼 <strong>Father's Name:</strong> ${tenant.father_name}</div>
-              <div>📞 <strong>Primary Phone:</strong> ${tenant.phone}</div>
-              
-              <div>🔒 <strong>Identity Verification:</strong> 
-                <span id="id-container-${tenant.id}" style="font-weight: 600; letter-spacing: 0.05em;">•••• •••• ••••</span> 
-                <span class="reveal-link" onclick="toggleReveal('${tenant.id}', '${clearIdString}')">(Reveal)</span>
+        <li class="tenant-item" style="flex-direction: column; align-items: stretch;">
+          <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div class="tenant-info">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <strong>👤 ${tenant.name}</strong> 
+                ${statusBadge}
               </div>
               
-              <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit).toLocaleString()}</div>
-              <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
+              <div class="meta-grid">
+                <div>🏠 <strong>Unit:</strong> ${tenant.unit} (${tenant.unit_area} Sq. Ft.)</div>
+                <div>💼 <strong>Father's Name:</strong> ${tenant.father_name}</div>
+                <div>📞 <strong>Primary Phone:</strong> ${tenant.phone}</div>
+                <div>🔒 <strong>Identity Verification:</strong> <span id="id-container-${tenant.id}" style="font-weight: 600; letter-spacing: 0.05em;">•••• •••• ••••</span> <span class="reveal-link" onclick="toggleReveal('${tenant.id}', '${clearIdString}')">(Reveal)</span></div>
+                <div>💰 <strong>Security Deposit:</strong> $${Number(tenant.security_deposit).toLocaleString()}</div>
+                <div>📊 <strong>Invoice Target:</strong> $${totalTargetInvoice.toLocaleString()} (Rent: $${baseRent} + Maint: $${maintenance})</div>
+              </div>
+              
+              <div style="font-size: 13px; color: #1e293b; margin-top: 8px; font-weight: 500;">
+                Total Paid Current Month: <span style="color: #10b981; font-weight:700;">$${currentPaid.toLocaleString()}</span>
+              </div>
             </div>
-            
-            <div style="font-size: 13px; color: #1e293b; margin-top: 8px; font-weight: 500;">
-              Total Paid Current Month: <span style="color: #10b981; font-weight:700;">$${currentPaid.toLocaleString()}</span>
+            <div class="actions">
+              ${dynamicPaymentInput}
+              <form action="/delete-tenant/${tenant.id}" method="POST" style="margin: 0;" onsubmit="return confirm('Are you sure this tenant moved out?');">
+                <button type="submit" class="btn btn-danger">🗑️</button>
+              </form>
             </div>
           </div>
-          <div class="actions">
-            ${dynamicPaymentInput}
-            <form action="/delete-tenant/${tenant.id}" method="POST" style="margin: 0;">
-              <button type="submit" class="btn btn-danger">🗑️</button>
-            </form>
-          </div>
+          ${historyWrapper}
         </li>
       `;
     });
 
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        ${HTML_HEAD}
-        <body>
-          <div class="container">
-            <h1>Master Directory & Business Ledgers</h1>
-            
-            <div class="flex-stats">
-              <div class="stat-card stat-card-paid">
-                <small>Gross Collections</small>
-                <h2>$${grossCollected.toLocaleString()}</h2>
-              </div>
-              <div class="stat-card stat-card-unpaid">
-                <small>Total Dues Outstanding</small>
-                <h2>$${grossOutstanding.toLocaleString()}</h2>
-              </div>
-            </div>
-
-            <h3 style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Active Records Ledger</h3>
-            <ul class="tenant-list">
-              ${tenantRows || '<li class="tenant-item">No active leasing portfolios found.</li>'}
-            </ul>
-            
-            <div style="margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 20px;">
-              <a href="/" class="btn btn-secondary">← Back to Registration Form</a>
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
+    res.send(`<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container"><h1>Master Directory & Business Ledgers</h1><div class="flex-stats"><div class="stat-card stat-card-paid"><small>Gross Collections</small><h2>$${grossCollected.toLocaleString()}</h2></div><div class="stat-card stat-card-unpaid"><small>Total Dues Outstanding</small><h2>$${grossOutstanding.toLocaleString()}</h2></div></div><h3 style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Active Records Ledger</h3><ul class="tenant-list">${tenantRows || '<li class="tenant-item">No active records found.</li>'}</ul><div style="margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 20px;"><a href="/" class="btn btn-secondary">← Back to Registration Form</a></div></div></body></html>`);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error reading master dashboard calculations.");
+    res.status(500).send("Error reading calculations.");
   }
 });
 

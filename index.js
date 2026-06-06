@@ -13,8 +13,7 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
-  // SAFETY CLEANUP RESET: Drop old schema configurations if they mismatch the brand new portions tracking engine
-  // This flushes out the old legacy text columns and allows Postgres to compile the clean relational tables safely.
+  // SAFETY CLEANUP RESET: Drops old schema configurations if they mismatch the brand new portions tracking engine
   await pool.query(`DROP TABLE IF EXISTS payment_logs CASCADE;`);
   await pool.query(`DROP TABLE IF EXISTS invoice_extra_items CASCADE;`);
   await pool.query(`DROP TABLE IF EXISTS invoices CASCADE;`);
@@ -32,7 +31,7 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Permanent Tenant Profiles (Linked cleanly via foreign key relationships)
+  // 2. Permanent Tenant Profiles
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -60,7 +59,7 @@ async function initDatabase() {
     );
   `);
 
-  // 4. Unlimited Itemized Maintenance Items Table
+  // 4. Itemized Maintenance Items Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -430,8 +429,8 @@ app.post('/generate-monthly-invoices', async (req, res) => {
         LEFT JOIN (
           SELECT invoice_id, SUM(item_amount) as extra_sum FROM invoice_extra_items WHERE item_billing_month = $1 GROUP BY invoice_id
         ) extras ON invoices.id = extras.invoice_id
-        WHERE invoices.tenant_id = $1 AND invoices.billing_month = $2
-      `, [t.tenant_id, previousMonthLabel]);
+        WHERE invoices.tenant_id = $2 AND invoices.billing_month = $1
+      `, [previousMonthLabel, t.tenant_id]);
 
       if (prevInvoiceQuery.rows.length > 0) {
         const pInv = prevInvoiceQuery.rows[0];
@@ -528,35 +527,7 @@ app.post('/delete-tenant/:id/:unitId', async (req, res) => {
   }
 });
 
-app.post('/add-extra-item/:invoiceId', async (req, res) => {
-  try {
-    const invoiceId = req.params.invoiceId;
-    const itemDesc = req.body.itemDesc || 'General Maintenance';
-    const itemAmount = Number(req.body.itemAmount || 0);
-    const selectedMonth = req.body.selectedMonth;
-
-    const parts = selectedMonth.split(' ');
-    const currentM = parts[0];
-    const currentY = Number(parts[1]);
-    const monthArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const currentIndex = monthArray.indexOf(currentM);
-    
-    let nextM = monthArray[(currentIndex + 1) % 12];
-    let nextY = (currentM === "Dec") ? currentY + 1 : currentY;
-    const nextMonthLabel = `${nextM} ${nextY}`;
-
-    await pool.query suicide(`
-      INSERT INTO invoice_extra_items (invoice_id, item_desc, item_amount, item_billing_month)
-      VALUES ($1, $2, $3, $4)
-    `, [invoiceId, itemDesc, itemAmount, nextMonthLabel]);
-
-    res.redirect('/tenants?month=' + encodeURIComponent(selectedMonth));
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Error appending itemized expense.");
-  }
-});
-
+// FIXED ACTION ROUTE: Erased the corrupted "suicide" tag and removed the redundant duplicate block
 app.post('/add-extra-item/:invoiceId', async (req, res) => {
   try {
     const invoiceId = req.params.invoiceId;

@@ -62,7 +62,7 @@ const HTML_HEAD = `
 `;
 
 function wrapHTML(bodyContent) {
-  return \`<!DOCTYPE html><html>\${HTML_HEAD}<body><div class="container">\${bodyContent}</div></body></html>\`;
+  return `<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">${bodyContent}</div></body></html>`;
 }
 
 module.exports = { wrapHTML };

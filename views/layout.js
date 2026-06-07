@@ -48,12 +48,21 @@ const HTML_HEAD = `
         const drawer = document.getElementById('drawer-' + invoiceId);
         drawer.style.display = (drawer.style.display === 'block') ? 'none' : 'block';
       }
+
+      function toggleReveal(tenantId, actualValue) {
+        const container = document.getElementById('id-container-' + tenantId);
+        if (container.textContent.includes('••••')) {
+          container.textContent = actualValue;
+        } else {
+          container.textContent = '•••• •••• ••••';
+        }
+      }
     </script>
   </head>
 `;
 
 function wrapHTML(bodyContent) {
-  return `<!DOCTYPE html><html>${HTML_HEAD}<body><div class="container">${bodyContent}</div></body></html>`;
+  return \`<!DOCTYPE html><html>\${HTML_HEAD}<body><div class="container">\${bodyContent}</div></body></html>\`;
 }
 
 module.exports = { wrapHTML };

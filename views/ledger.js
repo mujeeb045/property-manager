@@ -17,7 +17,7 @@ function renderLedgerView(selectedMonth, grossCollected, grossOutstanding, dropd
     </div>
 
     <div class="search-box" style="margin-bottom: 25px;">
-      <input type="text" id="tenantSearch" onkeyup="filterTenants()" placeholder="Search by Tenant Name, Unit Number, or Phone...">
+      <input type="text" id="tenantSearch" onkeyup="filterTenants()" placeholder="Search by Name, Unit, or Phone..." style="width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px;">
     </div>
 
     <div style="background: #1e293b; color: white; padding: 12px 20px; border-radius: 8px 8px 0 0; display: flex; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -26,11 +26,29 @@ function renderLedgerView(selectedMonth, grossCollected, grossOutstanding, dropd
       <div style="flex: 2; text-align: right; padding-right: 10px;">Quick Payment Actions</div>
     </div>
 
-    <ul class="tenant-list" style="border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px; background: white; overflow: hidden;">
-      ${tenantRows || `<li style="color:#64748b; text-align:center; padding: 40px; list-style: none;">No generated statements found for ${selectedMonth}.</li>`}
+    <ul class="tenant-list" style="border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px; background: white; overflow: hidden; list-style: none; padding:0; margin:0;">
+      ${tenantRows || `<li style="color:#64748b; text-align:center; padding: 40px;">No generated statements found for ${selectedMonth}.</li>`}
     </ul>
     
     <div style="margin-top:25px; border-top:1px solid #e2e8f0; padding-top:20px;"><a href="/" class="btn btn-secondary">← Back to Dashboard Input</a></div>
+
+    <script>
+      function filterTenants() {
+        const input = document.getElementById('tenantSearch');
+        const filter = input.value.toLowerCase();
+        const list = document.querySelector('.tenant-list');
+        const items = list.getElementsByClassName('tenant-item');
+
+        for (let i = 0; i < items.length; i++) {
+          const dataSearch = items[i].getAttribute('data-search') || "";
+          if (dataSearch.toLowerCase().includes(filter)) {
+            items[i].style.display = "";
+          } else {
+            items[i].style.display = "none";
+          }
+        }
+      }
+    </script>
   `;
 }
 

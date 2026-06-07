@@ -16,8 +16,8 @@ function renderLedgerView(selectedMonth, grossCollected, grossOutstanding, dropd
       <div class="stat-card stat-card-unpaid"><small>Outstanding Dues (${selectedMonth})</small><h2>₹${grossOutstanding.toLocaleString('en-IN')}</h2></div>
     </div>
 
-    <div class="search-box" style="margin-bottom: 25px;">
-      <input type="text" id="tenantSearch" onkeyup="filterTenants()" placeholder="Search by Name, Unit, or Phone..." style="width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px;">
+    <div class="search-box">
+      <input type="text" id="tenantSearch" onkeyup="filterTenants()" placeholder="Search by Name, Unit, or Phone...">
     </div>
 
     <div style="background: #1e293b; color: white; padding: 12px 20px; border-radius: 8px 8px 0 0; display: flex; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -38,14 +38,9 @@ function renderLedgerView(selectedMonth, grossCollected, grossOutstanding, dropd
         const filter = input.value.toLowerCase();
         const list = document.querySelector('.tenant-list');
         const items = list.getElementsByClassName('tenant-item');
-
         for (let i = 0; i < items.length; i++) {
           const dataSearch = items[i].getAttribute('data-search') || "";
-          if (dataSearch.toLowerCase().includes(filter)) {
-            items[i].style.display = "";
-          } else {
-            items[i].style.display = "none";
-          }
+          items[i].style.display = dataSearch.toLowerCase().includes(filter) ? "" : "none";
         }
       }
     </script>

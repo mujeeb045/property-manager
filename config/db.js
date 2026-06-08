@@ -18,7 +18,7 @@ async function initDatabase() {
     );
   `);
 
-  // 2. Permanent Tenant Profiles (Upgraded with an active/historical tracking flag)
+  // 2. Permanent Tenant Profiles
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenants (
       id SERIAL PRIMARY KEY,
@@ -29,12 +29,27 @@ async function initDatabase() {
       alt_phone TEXT,
       id_card_no TEXT,
       security_deposit NUMERIC DEFAULT 0,
-      is_active BOOLEAN DEFAULT TRUE -- NEW STATUS TRACKER FLAG
+      is_active BOOLEAN DEFAULT TRUE,
+      move_in_date DATE DEFAULT CURRENT_DATE,
+      move_out_date DATE
     );
   `);
 
-  // Add the column dynamically if it didn't exist from previous builds
-  await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`);
+  // Add columns dynamically for older deployments
+  await pool.query(`
+    ALTER TABLE tenants
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+  `);
+
+  await pool.query(`
+    ALTER TABLE tenants
+    ADD COLUMN IF NOT EXISTS move_in_date DATE DEFAULT CURRENT_DATE;
+  `);
+
+  await pool.query(`
+    ALTER TABLE tenants
+    ADD COLUMN IF NOT EXISTS move_out_date DATE;
+  `);
 
   // 3. Monthly Invoice Records Sheet
   await pool.query(`
@@ -61,7 +76,7 @@ async function initDatabase() {
     );
   `);
 
-  // 5. Audit logs transaction ledger trail
+  // 5. Audit Logs Transaction Ledger Trail
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
@@ -71,14 +86,21 @@ async function initDatabase() {
     );
   `);
 
-  // 🛠️ DATA INTEGRITY CHECK: Re-sync room flags based only on ACTIVE tenants
+  // Data Integrity Check
   await pool.query(`
-    UPDATE units 
-    SET is_occupied = FALSE 
-    WHERE id NOT IN (SELECT DISTINCT unit_id FROM tenants WHERE unit_id IS NOT NULL AND is_active = TRUE);
+    UPDATE units
+    SET is_occupied = FALSE
+    WHERE id NOT IN (
+      SELECT DISTINCT unit_id
+      FROM tenants
+      WHERE unit_id IS NOT NULL
+      AND is_active = TRUE
+    );
   `);
 }
 
-initDatabase().catch(err => console.error("Database asset registry failed to sync:", err));
+initDatabase().catch(err =>
+  console.error("Database asset registry failed to sync:", err)
+);
 
 module.exports = pool;

@@ -163,7 +163,35 @@ router.get('/register-tenant', async (req, res) => {
 router.post('/allocate-tenant', async (req, res) => {
   try {
     const { unitId, tenantName, fatherName, phone, altPhone, idCardNo, securityDeposit } = req.body;
-    await pool.query('INSERT INTO tenants (unit_id, name, father_name, phone, alt_phone, id_card_no, security_deposit, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)', [unitId, tenantName, fatherName, phone, altPhone||'N/A', idCardNo, securityDeposit||0]);
+    await pool.query(
+`
+INSERT INTO tenants
+(
+  unit_id,
+  name,
+  father_name,
+  phone,
+  alt_phone,
+  id_card_no,
+  security_deposit,
+  is_active,
+  move_in_date
+)
+VALUES
+(
+  $1,$2,$3,$4,$5,$6,$7,TRUE,CURRENT_DATE
+)
+`,
+[
+  unitId,
+  tenantName,
+  fatherName,
+  phone,
+  altPhone || 'N/A',
+  idCardNo,
+  securityDeposit || 0
+]
+);
     await pool.query('UPDATE units SET is_occupied=TRUE WHERE id=$1', [unitId]);
     res.redirect('/');
   } catch (err) {
@@ -461,9 +489,30 @@ router.get('/manage-profiles', async (req, res) => {
 
 router.post('/delete-tenant/:id/:unitId', async (req, res) => {
   try {
-    await pool.query('UPDATE tenants SET is_active = FALSE, unit_id = NULL WHERE id = $1', [req.params.id]);
-    await pool.query('UPDATE units SET is_occupied = FALSE WHERE id = $1', [req.params.unitId]);
+
+    await pool.query(
+      `
+      UPDATE tenants
+      SET
+        is_active = FALSE,
+        move_out_date = CURRENT_DATE,
+        unit_id = NULL
+      WHERE id = $1
+      `,
+      [req.params.id]
+    );
+
+    await pool.query(
+      `
+      UPDATE units
+      SET is_occupied = FALSE
+      WHERE id = $1
+      `,
+      [req.params.unitId]
+    );
+
     res.redirect('/manage-profiles');
+
   } catch (err) {
     console.error(err);
     res.status(500).send("Profile layout archive operations failed.");

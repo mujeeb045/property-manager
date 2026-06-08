@@ -7,8 +7,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Pull and bind our segmented functional routing box maps cleanly
-const appRouter = require('./routes/index');
-app.use('/', appRouter);
+const dashboardRoutes = require('./routes/index');
+const unitRoutes = require('./routes/units');
+const tenantRoutes = require('./routes/tenants');
+const billingRoutes = require('./routes/billing');
+
+app.use('/', dashboardRoutes);
+app.use('/', unitRoutes);
+app.use('/', tenantRoutes);
+app.use('/', billingRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running smoothly on http://localhost:${PORT}`);

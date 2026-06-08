@@ -6,6 +6,7 @@ const pool = new Pool({
 });
 
 async function initDatabase() {
+
   // 1. Permanent Portions / Units Asset Table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS units (
@@ -35,7 +36,7 @@ async function initDatabase() {
     );
   `);
 
-  // Add columns dynamically for older deployments
+  // Backward-Compatible Tenant Upgrades
   await pool.query(`
     ALTER TABLE tenants
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
@@ -51,7 +52,7 @@ async function initDatabase() {
     ADD COLUMN IF NOT EXISTS move_out_date DATE;
   `);
 
-  // 3. Monthly Invoice Records Sheet
+  // 3. Monthly Invoice Records
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
@@ -65,7 +66,7 @@ async function initDatabase() {
     );
   `);
 
-  // 4. Itemized Maintenance Items Table
+  // 4. Itemized Maintenance Items
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoice_extra_items (
       id SERIAL PRIMARY KEY,
@@ -76,14 +77,33 @@ async function initDatabase() {
     );
   `);
 
-  // 5. Audit Logs Transaction Ledger Trail
+  // 5. Payment Logs + Receipt Tracking
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_logs (
       id SERIAL PRIMARY KEY,
       invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
       amount_paid NUMERIC NOT NULL,
+      receipt_no TEXT,
+      payment_mode TEXT DEFAULT 'Cash',
+      reference_no TEXT DEFAULT '',
       payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  // Upgrade older deployments automatically
+  await pool.query(`
+    ALTER TABLE payment_logs
+    ADD COLUMN IF NOT EXISTS receipt_no TEXT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE payment_logs
+    ADD COLUMN IF NOT EXISTS payment_mode TEXT DEFAULT 'Cash';
+  `);
+
+  await pool.query(`
+    ALTER TABLE payment_logs
+    ADD COLUMN IF NOT EXISTS reference_no TEXT DEFAULT '';
   `);
 
   // Data Integrity Check
@@ -97,6 +117,7 @@ async function initDatabase() {
       AND is_active = TRUE
     );
   `);
+
 }
 
 initDatabase().catch(err =>

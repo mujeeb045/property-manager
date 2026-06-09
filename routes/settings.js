@@ -5,20 +5,12 @@ const { wrapHTML } = require('../views/layout');
 const ejs = require('ejs');
 const path = require('path');
 
-// Dashboard / Landing Page
-router.get('/', async (req, res) => {
+// Settings Page
+router.get('/settings', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
     const currentYear = nowIST.getFullYear();
-
-    const countsQuery = await pool.query(`
-      SELECT
-        COUNT(*) as total_units,
-        COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units,
-        COUNT(CASE WHEN is_occupied = FALSE THEN 1 END) as vacant_units
-      FROM units
-    `);
 
     const monthArray = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -32,21 +24,18 @@ router.get('/', async (req, res) => {
     });
 
     const pageContent = await ejs.renderFile(
-      path.join(__dirname, '../views/dashboard/hub.ejs'), 
-      {
-        total_units: countsQuery.rows[0].total_units,
-        occupied_units: countsQuery.rows[0].occupied_units,
-        vacant_units: countsQuery.rows[0].vacant_units,
+      path.join(__dirname, '../views/settings/index.ejs'), 
+      { 
         monthOptionsHTML,
-        currentYear
+        currentYear 
       }
     );
 
-    res.send(wrapHTML("Dashboard", pageContent));
+    res.send(wrapHTML("Settings", pageContent));
 
   } catch (err) {
-    console.error("Dashboard Error:", err);
-    res.status(500).send("Error loading dashboard.");
+    console.error(err);
+    res.status(500).send("Error loading settings page.");
   }
 });
 

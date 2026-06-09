@@ -1,0 +1,30 @@
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-3xl font-bold mb-8">⚙️ Settings</h1>
+
+    <div class="bg-white rounded-3xl p-8 shadow-sm">
+        <h2 class="text-xl font-semibold mb-6">Generate Monthly Bills</h2>
+
+        <form action="/generate-monthly-invoices" method="POST"
+            onsubmit="return confirm('Generate bills for selected month?')">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Month</label>
+                    <select name="targetMonth" class="w-full border border-gray-300 rounded-2xl px-5 py-4">
+                        <%- monthOptionsHTML %>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Year</label>
+                    <input type="number" name="targetYear" value="<%= currentYear %>"
+                        class="w-full border border-gray-300 rounded-2xl px-5 py-4">
+                </div>
+            </div>
+
+            <button type="submit"
+                class="mt-8 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-5 rounded-2xl text-lg">
+                Generate Monthly Bills
+            </button>
+        </form>
+    </div>
+</div>

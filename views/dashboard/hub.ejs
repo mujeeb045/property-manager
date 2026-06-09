@@ -1,0 +1,62 @@
+<div class="max-w-6xl mx-auto">
+    <div class="text-center mb-12">
+        <h1 class="text-4xl font-bold text-gray-800 mb-3">🏠 Property Management Hub</h1>
+        <p class="text-gray-600 text-lg">Manage your rentals efficiently</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+        <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 card-hover">
+            <div class="text-emerald-600 text-5xl mb-4">🏠</div>
+            <p class="text-gray-500">Total Units</p>
+            <p class="text-5xl font-bold text-gray-800 mt-2">
+                <%= total_units || 0 %>
+            </p>
+        </div>
+        <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 card-hover">
+            <div class="text-red-500 text-5xl mb-4">🔴</div>
+            <p class="text-gray-500">Occupied</p>
+            <p class="text-5xl font-bold text-gray-800 mt-2">
+                <%= occupied_units || 0 %>
+            </p>
+        </div>
+        <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 card-hover">
+            <div class="text-emerald-500 text-5xl mb-4">🟢</div>
+            <p class="text-gray-500">Vacant</p>
+            <p class="text-5xl font-bold text-gray-800 mt-2">
+                <%= vacant_units || 0 %>
+            </p>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <a href="/add-unit"
+            class="bg-white hover:bg-orange-50 border border-orange-200 rounded-3xl p-10 flex flex-col items-center text-center group">
+            <div class="text-6xl mb-6 group-hover:scale-110 transition">🏢</div>
+            <h3 class="text-2xl font-semibold mb-2">Manage Units</h3>
+            <p class="text-gray-600">Add, edit or remove property portions</p>
+        </a>
+
+        <a href="/register-tenant"
+            class="bg-white hover:bg-blue-50 border border-blue-200 rounded-3xl p-10 flex flex-col items-center text-center group">
+            <div class="text-6xl mb-6 group-hover:scale-110 transition">👤</div>
+            <h3 class="text-2xl font-semibold mb-2">Add New Tenant</h3>
+            <p class="text-gray-600">Allocate vacant unit to tenant</p>
+        </a>
+
+        <a href="/tenants"
+            class="bg-white hover:bg-purple-50 border border-purple-200 rounded-3xl p-10 flex flex-col items-center text-center group md:col-span-2">
+            <div class="text-6xl mb-6 group-hover:scale-110 transition">📊</div>
+            <h3 class="text-2xl font-semibold mb-2">This Month Collection</h3>
+            <p class="text-gray-600">View dues, collect payments & send WhatsApp invoices</p>
+        </a>
+
+        <a href="/settings"
+            class="bg-white hover:bg-amber-50 border border-amber-200 rounded-3xl p-10 flex flex-col items-center text-center group">
+            <div class="text-6xl mb-6 group-hover:scale-110 transition">⚙️</div>
+            <h3 class="text-2xl font-semibold mb-2">Settings</h3>
+            <p class="text-gray-600">Generate Monthly Bills & Configuration</p>
+        </a>
+    </div>
+</div>

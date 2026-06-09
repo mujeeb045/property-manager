@@ -1,0 +1,69 @@
+<div class="max-w-7xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Monthly Billing Ledger</h1>
+
+        <div class="flex gap-3">
+            <a href="/" class="btn btn-secondary flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="/export-ledger/<%= selectedMonth %>"
+                class="btn bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2">
+                <i class="fas fa-file-excel"></i> Export Excel
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-sm text-gray-500">Total Collected (<%= selectedMonth %>)</p>
+            <p class="text-4xl font-bold text-emerald-600 mt-2">₹<%= grossCollected.toLocaleString('en-IN') %>
+            </p>
+        </div>
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-sm text-gray-500">Outstanding Dues (<%= selectedMonth %>)</p>
+            <p class="text-4xl font-bold text-red-600 mt-2">₹<%= grossOutstanding.toLocaleString('en-IN') %>
+            </p>
+        </div>
+    </div>
+
+    <!-- Month Selector -->
+    <div class="mb-6">
+        <form method="GET" action="/tenants" class="flex gap-3 items-center">
+            <select name="month" onchange="this.form.submit()"
+                class="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500">
+                <%- dropdownOptions %>
+            </select>
+        </form>
+    </div>
+
+    <!-- Search -->
+    <div class="mb-6">
+        <input type="text" id="tenantSearch" onkeyup="filterTenants()"
+            placeholder="Search tenants by name, unit or phone..."
+            class="w-full px-5 py-3 border border-gray-300 rounded-xl focus:outline-none focus:border-emerald-500">
+    </div>
+
+    <!-- Tenant List -->
+    <div class="space-y-4" id="tenantList">
+        <%- tenantRows %>
+    </div>
+</div>
+
+<script>
+    function filterTenants() {
+        const filter = document.getElementById('tenantSearch').value.toLowerCase();
+        const items = document.querySelectorAll('.tenant-item');
+
+        items.forEach(item => {
+            const searchText = item.getAttribute('data-search') || '';
+            item.style.display = searchText.toLowerCase().includes(filter) ? '' : 'none';
+        });
+    }
+
+    function toggleDrawer(id, e) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        const drawer = document.getElementById('drawer-' + id);
+        drawer.style.display = drawer.style.display === 'block' ? 'none' : 'block';
+    }
+</script>

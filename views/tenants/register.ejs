@@ -1,0 +1,66 @@
+<div class="max-w-2xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold text-gray-800">👤 Register New Tenant</h1>
+        <a href="/" class="text-emerald-600 hover:text-emerald-700 font-medium">← Back to Dashboard</a>
+    </div>
+
+    <div class="bg-white rounded-3xl shadow-sm p-8">
+        <form action="/allocate-tenant" method="POST" class="space-y-8">
+
+            <!-- Unit Selection -->
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Select Vacant Unit</label>
+                <select name="unitId" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+                    <option value="" disabled selected>-- Choose a vacant unit --</option>
+                    <%- vacantUnitsOptions %>
+                </select>
+            </div>
+
+            <!-- Security Deposit -->
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Security Deposit Received (₹)</label>
+                <input type="number" name="securityDeposit" placeholder="e.g. 50000" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <!-- Tenant Details -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Tenant Full Name</label>
+                    <input type="text" name="tenantName" placeholder="Full Name" required
+                        class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Father's Name</label>
+                    <input type="text" name="fatherName" placeholder="Father's Full Name" required
+                        class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Primary Phone Number</label>
+                    <input type="tel" name="phone" placeholder="9876543210" required
+                        class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Alternate Phone (Optional)</label>
+                    <input type="tel" name="altPhone" placeholder="Emergency Contact"
+                        class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Aadhaar Card Number</label>
+                <input type="text" name="idCardNo" placeholder="12-Digit Aadhaar Number" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <button type="submit"
+                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-5 rounded-2xl text-lg transition">
+                Register Tenant & Allocate Unit
+            </button>
+        </form>
+    </div>
+</div>

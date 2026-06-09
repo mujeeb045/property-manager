@@ -1,0 +1,76 @@
+<div class="max-w-5xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold text-gray-800">🏢 Property Units Management</h1>
+        <a href="/" class="text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-2">
+            ← Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Add New Unit Form -->
+    <div class="bg-white rounded-3xl shadow-sm p-8 mb-10">
+        <h2 class="text-xl font-semibold mb-6">Add New Unit / Portion</h2>
+
+        <form action="/save-unit" method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Unit Name / Number</label>
+                <input type="text" name="unitName" placeholder="e.g. Flat 101, Shop A-3" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Area (Sq. Ft.)</label>
+                <input type="number" name="unitArea" placeholder="e.g. 1250" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Monthly Rent (₹)</label>
+                <input type="number" name="rentAmount" placeholder="e.g. 18000" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">Monthly Maintenance (₹)</label>
+                <input type="number" name="maintenanceAmount" placeholder="e.g. 2500" required
+                    class="w-full border border-gray-300 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <div class="md:col-span-2">
+                <button type="submit"
+                    class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 rounded-2xl transition text-lg">
+                    Save New Unit
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Existing Units Table -->
+    <h2 class="text-2xl font-semibold mb-6">Existing Units Inventory</h2>
+
+    <div class="bg-white rounded-3xl shadow-sm overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-gray-100">
+                <tr>
+                    <th class="text-left p-5 font-medium">Unit Name</th>
+                    <th class="text-left p-5 font-medium">Area (Sqft)</th>
+                    <th class="text-left p-5 font-medium">Rent</th>
+                    <th class="text-left p-5 font-medium">Maintenance</th>
+                    <th class="text-left p-5 font-medium">Status</th>
+                    <th class="p-5 text-center font-medium">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <%- unitsRowsHTML %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function startInlineEdit(unitId) {
+        document.getElementById('view-row-' + unitId).style.display = 'none';
+        document.getElementById('edit-row-' + unitId).style.display = 'table-row';
+    }
+
+    function cancelInlineEdit(unitId) {
+        document.getElementById('edit-row-' + unitId).style.display = 'none';
+        document.getElementById('view-row-' + unitId).style.display = 'table-row';
+    }
+</script>

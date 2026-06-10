@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
-const { wrapHTML } = require('../../views/layout');
+const { wrapHTML } = require('../../views/layout');   // ← Correct path
 
 router.get('/history', async (req, res) => {
   try {
@@ -12,7 +12,8 @@ router.get('/history', async (req, res) => {
         tenants.father_name,
         tenants.phone,
         COALESCE(units.unit_name, 'No Unit / Departed') as unit_name,
-        tenants.is_active
+        tenants.is_active,
+        tenants.move_out_date
       FROM tenants 
       LEFT JOIN units ON tenants.unit_id = units.id 
       ORDER BY tenants.name ASC
@@ -35,7 +36,7 @@ router.get('/history', async (req, res) => {
             </div>
             ${status}
           </div>
-          <p class="text-sm text-gray-500 mt-3">${tenant.phone || ''}</p>
+          <p class="text-sm text-gray-500 mt-3">${tenant.phone || 'No phone'}</p>
         </div>
       `;
     });

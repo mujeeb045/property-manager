@@ -12,14 +12,14 @@ const dashboardRoutes = require('./routes/index');
 const unitRoutes = require('./routes/units');
 const tenantRoutes = require('./routes/tenants');
 const billingRoutes = require('./routes/billing');
-const settingsRoutes = require('./routes/settings');
+//const settingsRoutes = require('./routes/settings');
 
 
 app.use('/', dashboardRoutes);
 app.use('/', unitRoutes);
 app.use('/', tenantRoutes);
 app.use('/', billingRoutes);
-app.use('/', settingsRoutes);
+//app.use('/', settingsRoutes);
 
 app.listen(PORT, () => {
   console.log(`✅ Server running smoothly on http://localhost:${PORT}`);

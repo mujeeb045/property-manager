@@ -3,10 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 
-// ========================================
-// Add / Edit Unit Screen
-// ========================================
-
+// Add / Manage Units Page
 router.get('/add-unit', async (req, res) => {
   try {
     const unitsListQuery = await pool.query(`
@@ -38,8 +35,7 @@ router.get('/add-unit', async (req, res) => {
               : '<span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">Vacant</span>'}
           </td>
           <td class="p-5 text-right">
-            <button onclick="startInlineEdit('${u.id}')" 
-                    class="text-blue-600 hover:text-blue-700 mr-4">Edit</button>
+            <button onclick="startInlineEdit('${u.id}')" class="text-blue-600 hover:text-blue-700 mr-4">Edit</button>
             ${deleteButton}
           </td>
         </tr>
@@ -53,8 +49,7 @@ router.get('/add-unit', async (req, res) => {
             <td class="p-5"></td>
             <td class="p-5 text-right">
               <button type="submit" class="bg-emerald-600 text-white px-5 py-2 rounded-lg mr-2">Save</button>
-              <button type="button" onclick="cancelInlineEdit('${u.id}')" 
-                      class="text-gray-600 hover:text-gray-800">Cancel</button>
+              <button type="button" onclick="cancelInlineEdit('${u.id}')" class="text-gray-600 hover:text-gray-800">Cancel</button>
             </td>
           </form>
         </tr>`;
@@ -69,15 +64,12 @@ router.get('/add-unit', async (req, res) => {
     console.error("Units Page Error:", err);
     res.status(500).render('units/add-unit', { 
       title: 'Units Management',
-      error: 'Error loading units page.' 
+      error: 'Error loading units page' 
     });
   }
 });
 
-// ========================================
 // Save Unit
-// ========================================
-
 router.post('/save-unit', async (req, res) => {
   try {
     const { unitName, unitArea, rentAmount, maintenanceAmount } = req.body;
@@ -99,10 +91,7 @@ router.post('/save-unit', async (req, res) => {
   }
 });
 
-// ========================================
 // Update Unit
-// ========================================
-
 router.post('/update-unit/:unitId', async (req, res) => {
   try {
     const { unitName, unitArea, rentAmount, maintenanceAmount } = req.body;
@@ -121,10 +110,7 @@ router.post('/update-unit/:unitId', async (req, res) => {
   }
 });
 
-// ========================================
 // Delete Unit
-// ========================================
-
 router.post('/delete-unit/:unitId', async (req, res) => {
   try {
     const unitId = req.params.unitId;

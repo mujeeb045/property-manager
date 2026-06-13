@@ -3,13 +3,11 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 
-// ========================
-// GET: Settings Page (with current month pre-selected)
-// ========================
+// GET Settings Page
 router.get('/settings', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const currentMonth = (nowIST.getMonth() + 1).toString().padStart(2, '0'); // e.g., "06"
+    const currentMonth = (nowIST.getMonth() + 1).toString().padStart(2, '0');
     const currentYear = nowIST.getFullYear();
 
     res.render('billing/settings', {
@@ -19,23 +17,19 @@ router.get('/settings', async (req, res) => {
       currentMonth,
       currentYear
     });
-
   } catch (err) {
     console.error(err);
-    const fallbackYear = new Date().getFullYear();
     res.status(500).render('billing/settings', {
       title: 'Settings',
-      message: 'Error loading settings page',
+      message: 'Error loading page',
       success: false,
       currentMonth: '01',
-      currentYear: fallbackYear
+      currentYear: new Date().getFullYear()
     });
   }
 });
 
-// ========================================
-// Generate Monthly Bills (Supports Multiple Units)
-// ========================================
+// POST Generate Monthly Bills (Per Unit)
 router.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { month, year } = req.body;
@@ -51,7 +45,6 @@ router.post('/generate-monthly-invoices', async (req, res) => {
       });
     }
 
-    // Get all active tenant + unit combinations
     const assignments = await pool.query(`
       SELECT 
         tu.tenant_id,
@@ -63,14 +56,12 @@ router.post('/generate-monthly-invoices', async (req, res) => {
       FROM tenant_units tu
       JOIN tenants t ON tu.tenant_id = t.id
       JOIN units u ON tu.unit_id = u.id
-      WHERE tu.is_active = TRUE
-        AND t.is_active = TRUE
+      WHERE tu.is_active = TRUE AND t.is_active = TRUE
     `);
 
     let created = 0;
 
     for (const a of assignments.rows) {
-      // More specific check: bill for this tenant + this unit + this month
       const existing = await pool.query(`
         SELECT 1 FROM transactions 
         WHERE tenant_id = $1 
@@ -83,8 +74,7 @@ router.post('/generate-monthly-invoices', async (req, res) => {
         const total = Number(a.rent) + Number(a.maintenance);
 
         await pool.query(`
-          INSERT INTO transactions 
-            (tenant_id, transaction_date, tran_type, particular, amount, notes)
+          INSERT INTO transactions (tenant_id, transaction_date, tran_type, particular, amount, notes)
           VALUES ($1, CURRENT_DATE, 'Bill', $2, $3, $4)
         `, [
           a.tenant_id,

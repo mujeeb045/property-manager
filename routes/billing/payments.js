@@ -3,9 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 
-// ========================
-// Record New Payment
-// ========================
+// Record Payment
 router.post('/collect-invoice-payment', async (req, res) => {
   try {
     const { tenant_id, paymentAmount, paymentMode = 'Cash', selectedMonth } = req.body;
@@ -22,8 +20,7 @@ router.post('/collect-invoice-payment', async (req, res) => {
     `, [tenant_id, amount, paymentMode, selectedMonth ? `Payment for ${selectedMonth}` : '']);
 
     const tenantInfo = await pool.query(`
-      SELECT name, phone, 
-             COALESCE((SELECT unit_name FROM units WHERE id = tenants.unit_id), 'No Unit') as unit_name
+      SELECT name, phone 
       FROM tenants WHERE id = $1
     `, [tenant_id]);
 
@@ -31,8 +28,7 @@ router.post('/collect-invoice-payment', async (req, res) => {
 
     let receiptText = `Payment Received\n\n`;
     receiptText += `Tenant: ${tenant.name}\n`;
-    receiptText += `Unit: ${tenant.unit_name}\n\n`;
-    receiptText += `Amount Received: Rs.${amount.toLocaleString('en-IN')}\n`;
+    receiptText += `Amount: Rs.${amount.toLocaleString('en-IN')}\n`;
     receiptText += `Date: ${new Date().toLocaleDateString('en-IN')}\n`;
     receiptText += `Mode: ${paymentMode}\n\n`;
     receiptText += `Thank you!`;
@@ -44,30 +40,19 @@ router.post('/collect-invoice-payment', async (req, res) => {
       title: 'Payment Recorded',
       amount,
       tenantName: tenant.name,
-      unitName: tenant.unit_name,
-      paymentMode,
-      whatsappLink,
-      selectedMonth
+      whatsappLink
     });
 
   } catch (err) {
     console.error(err);
-    res.status(500).render('billing/payment-success', {
-      title: 'Payment Error',
-      error: 'Error recording payment.'
-    });
+    res.status(500).send("Error recording payment");
   }
 });
 
-// ========================
 // Add Extra Charge
-// ========================
-// Add Extra Charge (with Date support)
 router.post('/add-extra', async (req, res) => {
   try {
     const { tenant_id, particular, amount, transaction_date } = req.body;
-
-    // Use provided date or today's date
     const dateToUse = transaction_date || new Date().toISOString().split('T')[0];
 
     await pool.query(`
@@ -84,9 +69,7 @@ router.post('/add-extra', async (req, res) => {
   }
 });
 
-// ========================
 // Edit Transaction
-// ========================
 router.post('/edit-transaction/:id', async (req, res) => {
   try {
     const { amount } = req.body;
@@ -98,9 +81,7 @@ router.post('/edit-transaction/:id', async (req, res) => {
   }
 });
 
-// ========================
 // Delete Transaction
-// ========================
 router.post('/delete-transaction/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM transactions WHERE tran_id = $1', [req.params.id]);

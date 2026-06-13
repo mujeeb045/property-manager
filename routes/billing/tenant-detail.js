@@ -7,7 +7,6 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
   try {
     const tenantId = req.params.tenantId;
 
-    // Get tenant details + their current units
     const tenantRes = await pool.query(`
       SELECT 
         t.*,
@@ -28,7 +27,6 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
 
     const tenant = tenantRes.rows[0];
 
-    // Get all transactions for this tenant
     const transactions = await pool.query(`
       SELECT 
         tran_id,
@@ -50,13 +48,6 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
       const amount = Number(row.amount);
       const isDebit = row.type === 'Bill' || row.type === 'Extra';
 
-      const actionHTML = `
-        <button onclick="editTransaction(${row.tran_id}, ${amount})" 
-                class="text-blue-600 hover:text-blue-700 text-sm mr-2">Edit</button>
-        <button onclick="deleteTransaction(${row.tran_id})" 
-                class="text-red-600 hover:text-red-700 text-sm">Delete</button>
-      `;
-
       rowsHTML += `
         <tr class="border-b hover:bg-gray-50">
           <td class="py-4">${row.period}</td>
@@ -65,17 +56,20 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
             ${isDebit ? 'Dr.' : 'Cr.'} ₹${amount.toLocaleString('en-IN')}
           </td>
           <td class="py-4 text-right font-semibold">₹${Number(row.running_balance).toLocaleString('en-IN')}</td>
-          <td class="py-4 text-center">${actionHTML}</td>
+          <td class="py-4 text-center">
+            <button onclick="editTransaction(${row.tran_id}, ${amount})" class="text-blue-600 hover:text-blue-700 text-sm mr-2">Edit</button>
+            <button onclick="deleteTransaction(${row.tran_id})" class="text-red-600 hover:text-red-700 text-sm">Delete</button>
+          </td>
         </tr>
       `;
     });
 
     res.render('billing/tenant-detail', {
-  title: `${tenant.name} - History`,
-  tenant,
-  rowsHTML: rowsHTML || '<tr><td colspan="5" class="py-12 text-center text-gray-500">No transactions found</td></tr>',
-  error: null          // ← Add this line
-});
+      title: `${tenant.name} - History`,
+      tenant,
+      rowsHTML: rowsHTML || '<tr><td colspan="5" class="py-12 text-center text-gray-500">No transactions found</td></tr>',
+      error: null
+    });
 
   } catch (err) {
     console.error("Tenant Detail Error:", err.message);

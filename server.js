@@ -10,47 +10,52 @@ const PORT = process.env.PORT || 3000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// View Engine + Layouts
+// EJS + Layouts
 app.set('view engine', 'ejs');
 app.use(expressLayouts);
 app.set('layout', 'layout/base');
 
-// Routes
+// Import Routes
 const dashboardRoutes = require('./routes/index');
 const unitRoutes = require('./routes/units');
 const tenantRoutes = require('./routes/tenants');
-const billingRoutes = require('./routes/billing');
 
+// Import Billing Routes Directly (since we removed billing/index.js)
+const ledgerRouter = require('./routes/billing/ledger');
+const historyRouter = require('./routes/billing/history');
+const paymentsRouter = require('./routes/billing/payments');
+const tenantDetailRouter = require('./routes/billing/tenant-detail');
+const tenantPdfRouter = require('./routes/billing/tenant-pdf');
+const settingsRouter = require('./routes/billing/settings');
+
+// Mount Routes
 app.use('/', dashboardRoutes);
 app.use('/', unitRoutes);
 app.use('/', tenantRoutes);
-app.use('/', billingRoutes);
+app.use('/', ledgerRouter);
+app.use('/', historyRouter);
+app.use('/', paymentsRouter);
+app.use('/', tenantDetailRouter);
+app.use('/', tenantPdfRouter);
+app.use('/', settingsRouter);
 
-// ========================
-// 404 Not Found Handler
-// ========================
-app.use((req, res, next) => {
+// 404 Handler
+app.use((req, res) => {
   res.status(404).render('error', {
     title: 'Page Not Found',
-    message: 'Sorry, the page you are looking for does not exist.',
-    error: {}
+    message: 'Sorry, the page you are looking for does not exist.'
   });
 });
 
-// ========================
 // Global Error Handler
-// ========================
 app.use((err, req, res, next) => {
   console.error(err.stack);
-
-  res.status(err.status || 500).render('error', {
-    title: 'Something went wrong',
-    message: err.message || 'An unexpected error occurred.',
-    error: process.env.NODE_ENV === 'development' ? err : {}
+  res.status(500).render('error', {
+    title: 'Server Error',
+    message: 'Something went wrong. Please try again later.'
   });
 });
 
-// Start Server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

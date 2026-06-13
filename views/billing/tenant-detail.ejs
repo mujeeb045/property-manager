@@ -8,78 +8,127 @@
         </div>
         <% } else { %>
 
-            <div class="bg-white rounded-3xl p-8 shadow-sm">
-                <!-- Tenant Header -->
-                <div class="flex justify-between items-start mb-8">
-                    <div>
-                        <h1 class="text-3xl font-bold">
-                            <%= tenant.name %>
-                        </h1>
-                        <p class="text-xl text-gray-600">Unit: <%= tenant.unit_name %>
-                        </p>
-                    </div>
-                    <a href="/tenant-pdf/<%= tenant.id %>"
-                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium flex items-center gap-2">
-                        📥 Download PDF Statement
-                    </a>
+            <!-- Tenant Header -->
+            <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold">
+                        <%= tenant.name %>
+                    </h1>
+                    <p class="text-xl text-gray-600 mt-1">
+                        Current Units: <span class="font-medium">
+                            <%= tenant.current_units || 'No active units' %>
+                        </span>
+                    </p>
                 </div>
+                <a href="/tenant-pdf/<%= tenant.id %>"
+                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium flex items-center justify-center gap-2 w-full md:w-auto">
+                    📥 Download PDF Statement
+                </a>
+            </div>
 
-                <!-- Add Extra Charge -->
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-8">
-                    <h3 class="font-semibold mb-4 text-amber-800">Add Extra Charge</h3>
-                    <form action="/add-extra" method="POST" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <input type="hidden" name="tenant_id" value="<%= tenant.id %>">
-                        <input type="text" name="particular" placeholder="Description (e.g. Plumber repair)"
-                            class="border border-gray-300 rounded-xl px-4 py-3" required>
-                        <input type="number" name="amount" placeholder="Amount (₹)"
-                            class="border border-gray-300 rounded-xl px-4 py-3" required>
+            <!-- Add Extra Charge Form -->
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-8">
+                <h3 class="font-semibold mb-4 text-amber-800">Add Extra Charge</h3>
+                <form action="/add-extra" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <input type="hidden" name="tenant_id" value="<%= tenant.id %>">
+
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium mb-1 text-amber-800">Description</label>
+                        <input type="text" name="particular" placeholder="e.g. Plumber repair, Water charges"
+                            class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-amber-800">Amount (₹)</label>
+                        <input type="number" name="amount" placeholder="Amount"
+                            class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-amber-800">Date</label>
+                        <input type="date" name="transaction_date" value="<%= new Date().toISOString().split('T')[0] %>"
+                            class="w-full border border-gray-300 rounded-xl px-4 py-3">
+                    </div>
+
+                    <div class="md:col-span-4">
                         <button type="submit"
-                            class="bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-medium">
+                            class="w-full md:w-auto bg-amber-600 hover:bg-amber-700 text-white px-8 py-3 rounded-xl font-medium">
                             Add Extra Charge
                         </button>
-                    </form>
-                </div>
+                    </div>
+                </form>
+            </div>
 
-                <!-- Transactions Table -->
-                <table class="w-full">
-                    <thead>
-                        <tr class="border-b-2 border-gray-300">
-                            <th class="text-left py-4">Date</th>
-                            <th class="text-left py-4">Particular</th>
-                            <th class="text-right py-4">Amount</th>
-                            <th class="text-right py-4">Balance</th>
-                            <th class="text-center py-4">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <%- rowsHTML %>
-                    </tbody>
-                </table>
+            <!-- Transaction History -->
+            <div class="bg-white rounded-3xl p-8 shadow-sm">
+                <h3 class="text-xl font-semibold mb-4">Transaction History</h3>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[700px]">
+                        <thead>
+                            <tr class="border-b-2 border-gray-300">
+                                <th class="text-left py-4">Date</th>
+                                <th class="text-left py-4">Particular</th>
+                                <th class="text-right py-4">Amount</th>
+                                <th class="text-right py-4">Balance</th>
+                                <th class="text-center py-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <%- rowsHTML %>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <% } %>
 </div>
 
+<!-- JavaScript for Edit & Delete -->
 <script>
     async function deleteTransaction(id) {
         if (!confirm("Delete this transaction? This action cannot be undone.")) return;
 
-        const res = await fetch('/delete-transaction/' + id, { method: 'POST' });
-        if (res.ok) location.reload();
-        else alert("Failed to delete transaction");
+        try {
+            const response = await fetch('/delete-transaction/' + id, {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert("Failed to delete transaction. Please try again.");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred while deleting the transaction.");
+        }
     }
 
     function editTransaction(id, currentAmount) {
         const newAmount = prompt("Enter new amount:", currentAmount);
-        if (newAmount === null || newAmount === '' || isNaN(newAmount)) return;
+
+        if (newAmount === null || newAmount === '' || isNaN(newAmount)) {
+            return;
+        }
 
         fetch('/edit-transaction/' + id, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ amount: parseFloat(newAmount) })
-        }).then(res => {
-            if (res.ok) location.reload();
-            else alert("Failed to update amount");
-        });
+        })
+            .then(response => {
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert("Failed to update the amount.");
+                }
+            })
+            .catch(error => {
+                console.error(error);
+                alert("An error occurred while updating the transaction.");
+            });
     }
 </script>

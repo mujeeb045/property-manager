@@ -62,15 +62,22 @@ router.post('/collect-invoice-payment', async (req, res) => {
 // ========================
 // Add Extra Charge
 // ========================
+// Add Extra Charge (with Date support)
 router.post('/add-extra', async (req, res) => {
   try {
-    const { tenant_id, particular, amount } = req.body;
+    const { tenant_id, particular, amount, transaction_date } = req.body;
+
+    // Use provided date or today's date
+    const dateToUse = transaction_date || new Date().toISOString().split('T')[0];
+
     await pool.query(`
       INSERT INTO transactions 
       (tenant_id, transaction_date, tran_type, particular, amount, notes)
-      VALUES ($1, CURRENT_DATE, 'Extra', $2, $3, 'Added manually')
-    `, [tenant_id, particular, amount]);
+      VALUES ($1, $2, 'Extra', $3, $4, 'Added manually')
+    `, [tenant_id, dateToUse, particular, amount]);
+
     res.redirect(`/history/tenant/${tenant_id}`);
+
   } catch (err) {
     console.error(err);
     res.status(500).send("Error adding extra charge");

@@ -1,19 +1,25 @@
 <h1 class="text-3xl font-bold mb-8">👤 Register New Tenant</h1>
 
 <% if (error) { %>
-    <div class="bg-red-100 text-red-700 p-4 rounded-lg mb-6">
+    <div class="bg-red-100 text-red-700 p-4 rounded-xl mb-6">
         <%= error %>
     </div>
     <% } %>
 
-        <div class="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow">
+        <div class="max-w-2xl mx-auto bg-white p-6 md:p-8 rounded-3xl shadow">
             <form method="POST" action="/allocate-tenant" class="space-y-6">
+                <!-- All form fields remain same, just better spacing -->
                 <div>
-                    <label class="block text-sm font-medium mb-2">Select Vacant Unit</label>
-                    <select name="unitId" required class="w-full border border-gray-300 rounded-lg px-4 py-3">
-                        <option value="">-- Choose Unit --</option>
-                        <%- vacantUnitsOptions %>
+                    <label class="block text-sm font-medium mb-2">Select Units (You can select multiple)</label>
+                    <select name="unitIds" multiple required
+                        class="w-full border border-gray-300 rounded-2xl px-4 py-3 h-40">
+                        <% vacantUnits.rows.forEach(u=> { %>
+                            <option value="<%= u.id %>">
+                                <%= u.unit_name %> — Rent: ₹<%= Number(u.rent_amount).toLocaleString('en-IN') %>
+                            </option>
+                            <% }) %>
                     </select>
+                    <p class="text-xs text-gray-500 mt-1">Hold Ctrl (Windows) or Cmd (Mac) to select multiple units</p>
                 </div>
 
                 <div>
@@ -53,8 +59,8 @@
                 </div>
 
                 <button type="submit"
-                    class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 rounded-xl text-lg">
-                    Allocate Tenant &amp; Start Billing
+                    class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 rounded-2xl text-lg">
+                    Allocate Tenant & Start Billing
                 </button>
             </form>
         </div>

@@ -1,0 +1,31 @@
+<div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold mb-2">📜 History by Tenant</h1>
+    <p class="text-gray-600 mb-8">Click on any tenant to view their full transaction history</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <% tenants.forEach(tenant=> { %>
+            <div onclick="window.location.href='/history/tenant/<%= tenant.id %>'"
+                class="bg-white rounded-2xl p-6 border border-gray-100 hover:border-emerald-400 hover:shadow-md cursor-pointer transition-all">
+
+                <div class="flex justify-between items-start">
+                    <div>
+                        <strong class="text-lg">👤 <%= tenant.name %></strong>
+                        <p class="text-gray-600 mt-1">
+                            <%= tenant.unit_names || 'No active units' %>
+                        </p>
+                    </div>
+
+                    <% if (tenant.is_active) { %>
+                        <span class="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-full">Active</span>
+                        <% } else { %>
+                            <span class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full">Left</span>
+                            <% } %>
+                </div>
+
+                <p class="text-sm text-gray-500 mt-3">
+                    <%= tenant.phone || 'No phone' %>
+                </p>
+            </div>
+            <% }) %>
+    </div>
+</div>

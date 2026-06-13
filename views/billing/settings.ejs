@@ -7,15 +7,16 @@
     </div>
     <% } %>
 
-        <div class="max-w-lg bg-white p-8 rounded-2xl shadow">
+        <div class="max-w-lg bg-white p-8 rounded-3xl shadow">
             <h2 class="text-2xl font-semibold mb-6">Generate Monthly Bills</h2>
 
             <form method="POST" action="/generate-monthly-invoices" class="space-y-6">
                 <div>
                     <label class="block text-sm font-medium mb-2">Month</label>
-                    <select name="month" required class="w-full border border-gray-300 rounded-xl px-4 py-3 text-lg">
+                    <select name="month" required class="w-full border border-gray-300 rounded-2xl px-4 py-3 text-lg">
                         <% for (let i=1; i <=12; i++) { %>
-                            <option value="<%= i.toString().padStart(2, '0') %>">
+                            <option value="<%= i.toString().padStart(2, '0') %>" <%=i.toString().padStart(2, '0'
+                                )===currentMonth ? 'selected' : '' %>>
                                 <%= new Date(0, i-1).toLocaleString('default', { month: 'long' }) %>
                             </option>
                             <% } %>
@@ -24,8 +25,8 @@
 
                 <div>
                     <label class="block text-sm font-medium mb-2">Year</label>
-                    <input type="number" name="year" value="<%= new Date().getFullYear() %>"
-                        class="w-full border border-gray-300 rounded-xl px-4 py-3 text-lg" required>
+                    <input type="number" name="year" value="<%= currentYear %>"
+                        class="w-full border border-gray-300 rounded-2xl px-4 py-3 text-lg" required>
                 </div>
 
                 <button type="submit"

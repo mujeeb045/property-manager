@@ -4,28 +4,38 @@ const router = express.Router();
 const pool = require('../../config/db');
 
 // ========================
-// GET: Settings Page
+// GET: Settings Page (with current month pre-selected)
 // ========================
 router.get('/settings', async (req, res) => {
   try {
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const currentMonth = (nowIST.getMonth() + 1).toString().padStart(2, '0'); // e.g., "06"
+    const currentYear = nowIST.getFullYear();
+
     res.render('billing/settings', {
       title: 'Settings',
       message: null,
-      success: null
+      success: null,
+      currentMonth,
+      currentYear
     });
+
   } catch (err) {
     console.error(err);
+    const fallbackYear = new Date().getFullYear();
     res.status(500).render('billing/settings', {
       title: 'Settings',
       message: 'Error loading settings page',
-      success: false
+      success: false,
+      currentMonth: '01',
+      currentYear: fallbackYear
     });
   }
 });
 
-// ========================
-// POST: Generate Monthly Bills
-// ========================
+// ========================================
+// Generate Monthly Bills (Supports Multiple Units)
+// ========================================
 router.post('/generate-monthly-invoices', async (req, res) => {
   try {
     const { month, year } = req.body;
@@ -35,48 +45,64 @@ router.post('/generate-monthly-invoices', async (req, res) => {
       return res.status(400).render('billing/settings', {
         title: 'Settings',
         message: "Month and Year are required",
-        success: false
+        success: false,
+        currentMonth: month || '01',
+        currentYear: year || new Date().getFullYear()
       });
     }
 
-    const tenants = await pool.query(`
-      SELECT t.id, t.name, COALESCE(u.unit_name, 'N/A') as unit_name,
-             COALESCE(u.rent_amount, 15000) as rent,
-             COALESCE(u.maintenance_amount, 0) as maintenance
-      FROM tenants t 
-      LEFT JOIN units u ON t.unit_id = u.id
-      WHERE t.is_active = true
+    // Get all active tenant + unit combinations
+    const assignments = await pool.query(`
+      SELECT 
+        tu.tenant_id,
+        tu.unit_id,
+        t.name as tenant_name,
+        u.unit_name,
+        COALESCE(u.rent_amount, 15000) as rent,
+        COALESCE(u.maintenance_amount, 0) as maintenance
+      FROM tenant_units tu
+      JOIN tenants t ON tu.tenant_id = t.id
+      JOIN units u ON tu.unit_id = u.id
+      WHERE tu.is_active = TRUE
+        AND t.is_active = TRUE
     `);
 
     let created = 0;
 
-    for (const t of tenants.rows) {
+    for (const a of assignments.rows) {
+      // More specific check: bill for this tenant + this unit + this month
       const existing = await pool.query(`
         SELECT 1 FROM transactions 
         WHERE tenant_id = $1 
           AND tran_type = 'Bill' 
           AND particular ILIKE $2
-      `, [t.id, `%${billingMonth}%`]);
+          AND particular ILIKE $3
+      `, [a.tenant_id, `%${billingMonth}%`, `%${a.unit_name}%`]);
 
       if (existing.rows.length === 0) {
+        const total = Number(a.rent) + Number(a.maintenance);
+
         await pool.query(`
           INSERT INTO transactions 
-            (tenant_id, tran_type, particular, amount, notes)
-          VALUES ($1, 'Bill', $2, $3, $4)
+            (tenant_id, transaction_date, tran_type, particular, amount, notes)
+          VALUES ($1, CURRENT_DATE, 'Bill', $2, $3, $4)
         `, [
-          t.id, 
-          `Monthly Rent - ${billingMonth}`, 
-          Number(t.rent) + Number(t.maintenance), 
-          `Unit: ${t.unit_name}`
+          a.tenant_id,
+          `Monthly Rent - ${billingMonth} (${a.unit_name})`,
+          total,
+          `Unit: ${a.unit_name} | Tenant: ${a.tenant_name}`
         ]);
+
         created++;
       }
     }
 
     res.render('billing/settings', {
       title: 'Settings',
-      message: `${created} bills generated successfully for ${billingMonth}`,
-      success: true
+      message: `${created} bills generated for ${billingMonth}`,
+      success: true,
+      currentMonth: month,
+      currentYear: parseInt(year)
     });
 
   } catch (err) {
@@ -84,7 +110,9 @@ router.post('/generate-monthly-invoices', async (req, res) => {
     res.status(500).render('billing/settings', {
       title: 'Settings',
       message: 'Error generating bills: ' + err.message,
-      success: false
+      success: false,
+      currentMonth: '01',
+      currentYear: new Date().getFullYear()
     });
   }
 });

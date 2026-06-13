@@ -1,0 +1,54 @@
+<h1 class="text-3xl font-bold mb-8">✏️ Edit Tenant Details</h1>
+
+<div class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow">
+    <form method="POST" action="/update-tenant/<%= tenant.id %>" class="space-y-6">
+
+        <div>
+            <label class="block text-sm font-medium mb-2">Full Name</label>
+            <input type="text" name="name" value="<%= tenant.name %>" required
+                class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium mb-2">Father's Name</label>
+            <input type="text" name="fatherName" value="<%= tenant.father_name || '' %>"
+                class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">Phone Number</label>
+                <input type="text" name="phone" value="<%= tenant.phone || '' %>" required
+                    class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">Alternate Phone</label>
+                <input type="text" name="altPhone" value="<%= tenant.alt_phone || '' %>"
+                    class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium mb-2">Aadhaar / ID Card No</label>
+            <input type="text" name="idCardNo" value="<%= tenant.id_card_no || '' %>"
+                class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium mb-2">Security Deposit (₹)</label>
+            <input type="number" name="securityDeposit" value="<%= tenant.security_deposit || 0 %>"
+                class="w-full border border-gray-300 rounded-2xl px-4 py-3">
+        </div>
+
+        <div class="flex gap-4 pt-4">
+            <button type="submit"
+                class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 rounded-2xl">
+                Save Changes
+            </button>
+            <a href="/manage-profiles"
+                class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-4 rounded-2xl text-center">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>

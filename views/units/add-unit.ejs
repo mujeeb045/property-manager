@@ -1,28 +1,28 @@
 <h1 class="text-3xl font-bold mb-6">🏢 Units Management</h1>
 
 <!-- Add New Unit Form -->
-<div class="bg-white p-6 rounded-xl shadow mb-8 max-w-2xl">
+<div class="bg-white p-6 rounded-2xl shadow mb-8">
     <h2 class="text-xl font-semibold mb-4">Add New Unit</h2>
-    <form method="POST" action="/save-unit" class="grid grid-cols-2 gap-4">
+    <form method="POST" action="/save-unit" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
             <label class="block text-sm font-medium mb-1">Unit Name</label>
-            <input type="text" name="unitName" required class="w-full border border-gray-300 rounded-lg px-4 py-3">
+            <input type="text" name="unitName" required class="w-full border border-gray-300 rounded-xl px-4 py-3">
         </div>
         <div>
             <label class="block text-sm font-medium mb-1">Area (Sqft)</label>
-            <input type="number" name="unitArea" required class="w-full border border-gray-300 rounded-lg px-4 py-3">
+            <input type="number" name="unitArea" required class="w-full border border-gray-300 rounded-xl px-4 py-3">
         </div>
         <div>
             <label class="block text-sm font-medium mb-1">Monthly Rent (₹)</label>
-            <input type="number" name="rentAmount" required class="w-full border border-gray-300 rounded-lg px-4 py-3">
+            <input type="number" name="rentAmount" required class="w-full border border-gray-300 rounded-xl px-4 py-3">
         </div>
         <div>
             <label class="block text-sm font-medium mb-1">Maintenance (₹)</label>
             <input type="number" name="maintenanceAmount" required
-                class="w-full border border-gray-300 rounded-lg px-4 py-3">
+                class="w-full border border-gray-300 rounded-xl px-4 py-3">
         </div>
-        <div class="col-span-2">
-            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium">
+        <div class="md:col-span-2">
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-medium">
                 Save Unit
             </button>
         </div>
@@ -31,29 +31,29 @@
 
 <!-- Units List -->
 <h2 class="text-2xl font-semibold mb-4">All Units</h2>
-<table class="w-full bg-white rounded-xl shadow overflow-hidden">
-    <thead class="bg-gray-100">
-        <tr>
-            <th class="p-5 text-left">Unit Name</th>
-            <th class="p-5 text-left">Area</th>
-            <th class="p-5 text-left">Rent</th>
-            <th class="p-5 text-left">Maintenance</th>
-            <th class="p-5 text-left">Status</th>
-            <th class="p-5 text-right">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        <%- unitsRowsHTML %>
-    </tbody>
-</table>
+<div class="bg-white rounded-2xl shadow overflow-hidden">
+    <table class="w-full min-w-full">
+        <thead class="bg-gray-100">
+            <tr>
+                <th class="p-4 text-left">Unit</th>
+                <th class="p-4 text-left">Area</th>
+                <th class="p-4 text-left">Rent</th>
+                <th class="p-4 text-left">Maint.</th>
+                <th class="p-4 text-left">Status</th>
+                <th class="p-4 text-right">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <%- unitsRowsHTML %>
+        </tbody>
+    </table>
+</div>
 
-<!-- Inline Edit JavaScript -->
 <script>
     function startInlineEdit(id) {
         document.getElementById(`view-row-${id}`).classList.add('hidden');
         document.getElementById(`edit-row-${id}`).classList.remove('hidden');
     }
-
     function cancelInlineEdit(id) {
         document.getElementById(`view-row-${id}`).classList.remove('hidden');
         document.getElementById(`edit-row-${id}`).classList.add('hidden');

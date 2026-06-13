@@ -54,19 +54,24 @@ router.post('/collect-invoice-payment', async (req, res) => {
   }
 });
 
-// ========================
-// Add Extra Charge
-// ========================
+// Add Extra Charge with Unit Binding
 router.post('/add-extra', async (req, res) => {
   try {
-    const { tenant_id, particular, amount, transaction_date } = req.body;
+    const { tenant_id, particular, amount, unit_id, transaction_date } = req.body;
     const dateToUse = transaction_date || new Date().toISOString().split('T')[0];
+
+    let unitName = 'General';
+
+    if (unit_id) {
+      const unitRes = await pool.query(`SELECT unit_name FROM units WHERE id = $1`, [unit_id]);
+      if (unitRes.rows.length > 0) unitName = unitRes.rows[0].unit_name;
+    }
 
     await pool.query(`
       INSERT INTO transactions 
       (tenant_id, transaction_date, tran_type, particular, amount, notes)
-      VALUES ($1, $2, 'Extra', $3, $4, 'Added manually')
-    `, [tenant_id, dateToUse, particular, amount]);
+      VALUES ($1, $2, 'Extra', $3, $4, $5)
+    `, [tenant_id, dateToUse, `${particular} (${unitName})`, amount, `Unit: ${unitName}`]);
 
     res.redirect(`/history/tenant/${tenant_id}`);
 

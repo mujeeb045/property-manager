@@ -1,4 +1,4 @@
-// routes/billing/tenant-detail.js
+// routes/billing/tenant-detail.js - SIMPLIFIED VERSION
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
@@ -7,6 +7,7 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
   try {
     const tenantId = req.params.tenantId;
 
+    // Get tenant basic info + current units
     const tenantRes = await pool.query(`
       SELECT 
         t.*,
@@ -19,14 +20,23 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
     `, [tenantId]);
 
     if (tenantRes.rows.length === 0) {
-      return res.status(404).render('billing/tenant-detail', {
-        title: 'Tenant Not Found',
-        error: 'Tenant not found'
-      });
+      return res.status(404).send("Tenant not found");
     }
 
     const tenant = tenantRes.rows[0];
 
+    // Get list of units separately (simpler)
+    const unitsRes = await pool.query(`
+      SELECT u.id, u.unit_name
+      FROM tenant_units tu
+      JOIN units u ON tu.unit_id = u.id
+      WHERE tu.tenant_id = $1 AND tu.is_active = TRUE
+      ORDER BY u.unit_name
+    `, [tenantId]);
+
+    tenant.units_list = unitsRes.rows;   // Simple array
+
+    // Get transactions
     const transactions = await pool.query(`
       SELECT 
         tran_id,
@@ -34,7 +44,6 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
         particular,
         amount,
         tran_type as type,
-        tran_mode as mode,
         SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END) 
           OVER (ORDER BY transaction_date, tran_id) as running_balance
       FROM transactions 

@@ -18,7 +18,7 @@ async function initDatabase() {
     await pool.query('SELECT NOW()');
     console.log("✅ Database connection successful!");
 
-    // 1. Units
+    // 1. Units Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS units (
         id SERIAL PRIMARY KEY,
@@ -30,11 +30,10 @@ async function initDatabase() {
       );
     `);
 
-    // 2. Tenants
+    // 2. Tenants Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tenants (
         id SERIAL PRIMARY KEY,
-        unit_id INTEGER UNIQUE REFERENCES units(id) ON DELETE SET NULL,
         name TEXT NOT NULL,
         father_name TEXT,
         phone TEXT,
@@ -47,13 +46,27 @@ async function initDatabase() {
       );
     `);
 
-    // 3. TRANSACTIONS TABLE (The only active transaction table now)
+    // 3. Tenant-Units Junction Table (Many-to-Many)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tenant_units (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+        unit_id INTEGER REFERENCES units(id) ON DELETE CASCADE,
+        move_in_date DATE DEFAULT CURRENT_DATE,
+        move_out_date DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id, unit_id)
+      );
+    `);
+
+    // 4. Transactions Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS transactions (
         tran_id SERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
         transaction_date DATE DEFAULT CURRENT_DATE,
-        tran_type TEXT NOT NULL,           -- 'Bill', 'Extra', 'Payment'
+        tran_type TEXT NOT NULL,
         particular TEXT NOT NULL,
         amount NUMERIC NOT NULL,
         tran_mode TEXT DEFAULT 'Cash',
@@ -62,18 +75,30 @@ async function initDatabase() {
       );
     `);
 
-    console.log("✅ Core tables (units, tenants, transactions) initialized successfully!");
+    console.log("✅ All tables initialized successfully!");
 
-    // Data Integrity
+    // === IMPORTANT: Updated logic for is_occupied ===
     await pool.query(`
-      UPDATE units
-      SET is_occupied = FALSE
-      WHERE id NOT IN (
-        SELECT DISTINCT unit_id
-        FROM tenants
-        WHERE unit_id IS NOT NULL AND is_active = TRUE
+      UPDATE units 
+      SET is_occupied = TRUE 
+      WHERE id IN (
+        SELECT DISTINCT unit_id 
+        FROM tenant_units 
+        WHERE is_active = TRUE
       );
     `);
+
+    await pool.query(`
+      UPDATE units 
+      SET is_occupied = FALSE 
+      WHERE id NOT IN (
+        SELECT DISTINCT unit_id 
+        FROM tenant_units 
+        WHERE is_active = TRUE
+      );
+    `);
+
+    console.log("✅ Unit occupation status synchronized.");
 
   } catch (err) {
     console.error("❌ Database initialization failed:", err.message);

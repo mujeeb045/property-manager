@@ -21,33 +21,43 @@
                     </p>
                 </div>
                 <a href="/tenant-pdf/<%= tenant.id %>"
-                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium flex items-center justify-center gap-2 w-full md:w-auto">
+                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium flex items-center justify-center gap-2">
                     📥 Download PDF Statement
                 </a>
             </div>
 
-            <!-- Add Extra Charge Form -->
+            <!-- Add Extra Charge -->
             <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-8">
                 <h3 class="font-semibold mb-4 text-amber-800">Add Extra Charge</h3>
+
                 <form action="/add-extra" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <input type="hidden" name="tenant_id" value="<%= tenant.id %>">
 
                     <div class="md:col-span-2">
-                        <label class="block text-sm font-medium mb-1 text-amber-800">Description</label>
+                        <label class="block text-sm font-medium mb-1">Description</label>
                         <input type="text" name="particular" placeholder="e.g. Plumber repair, Water charges"
                             class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-1 text-amber-800">Amount (₹)</label>
+                        <label class="block text-sm font-medium mb-1">Amount (₹)</label>
                         <input type="number" name="amount" placeholder="Amount"
                             class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-1 text-amber-800">Date</label>
-                        <input type="date" name="transaction_date" value="<%= new Date().toISOString().split('T')[0] %>"
-                            class="w-full border border-gray-300 rounded-xl px-4 py-3">
+                        <label class="block text-sm font-medium mb-1">Select Unit</label>
+                        <select name="unit_id" class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
+                            <% if (tenant.units_list && tenant.units_list.length> 0) { %>
+                                <% tenant.units_list.forEach(unit=> { %>
+                                    <option value="<%= unit.id %>">
+                                        <%= unit.name %>
+                                    </option>
+                                    <% }) %>
+                                        <% } else { %>
+                                            <option value="">No active units available</option>
+                                            <% } %>
+                        </select>
                     </div>
 
                     <div class="md:col-span-4">
@@ -62,7 +72,6 @@
             <!-- Transaction History -->
             <div class="bg-white rounded-3xl p-8 shadow-sm">
                 <h3 class="text-xl font-semibold mb-4">Transaction History</h3>
-
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[700px]">
                         <thead>
@@ -84,51 +93,20 @@
             <% } %>
 </div>
 
-<!-- JavaScript for Edit & Delete -->
 <script>
     async function deleteTransaction(id) {
-        if (!confirm("Delete this transaction? This action cannot be undone.")) return;
-
-        try {
-            const response = await fetch('/delete-transaction/' + id, {
-                method: 'POST'
-            });
-
-            if (response.ok) {
-                location.reload();
-            } else {
-                alert("Failed to delete transaction. Please try again.");
-            }
-        } catch (error) {
-            console.error(error);
-            alert("An error occurred while deleting the transaction.");
-        }
+        if (!confirm("Delete this transaction?")) return;
+        const res = await fetch('/delete-transaction/' + id, { method: 'POST' });
+        if (res.ok) location.reload();
     }
 
     function editTransaction(id, currentAmount) {
         const newAmount = prompt("Enter new amount:", currentAmount);
-
-        if (newAmount === null || newAmount === '' || isNaN(newAmount)) {
-            return;
-        }
-
+        if (newAmount === null || newAmount === '' || isNaN(newAmount)) return;
         fetch('/edit-transaction/' + id, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ amount: parseFloat(newAmount) })
-        })
-            .then(response => {
-                if (response.ok) {
-                    location.reload();
-                } else {
-                    alert("Failed to update the amount.");
-                }
-            })
-            .catch(error => {
-                console.error(error);
-                alert("An error occurred while updating the transaction.");
-            });
+        }).then(() => location.reload());
     }
 </script>

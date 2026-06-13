@@ -1,9 +1,7 @@
+// routes/index.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const { wrapHTML } = require('../views/layout');
-const ejs = require('ejs');
-const path = require('path');
 
 // Dashboard / Landing Page
 router.get('/', async (req, res) => {
@@ -31,22 +29,27 @@ router.get('/', async (req, res) => {
       `;
     });
 
-    const pageContent = await ejs.renderFile(
-      path.join(__dirname, '../views/dashboard/hub.ejs'), 
-      {
-        total_units: countsQuery.rows[0].total_units,
-        occupied_units: countsQuery.rows[0].occupied_units,
-        vacant_units: countsQuery.rows[0].vacant_units,
-        monthOptionsHTML,
-        currentYear
-      }
-    );
-
-    res.send(wrapHTML("Dashboard", pageContent));
+    res.render('dashboard/hub', {
+      title: 'Dashboard',
+      total_units: countsQuery.rows[0].total_units,
+      occupied_units: countsQuery.rows[0].occupied_units,
+      vacant_units: countsQuery.rows[0].vacant_units,
+      monthOptionsHTML,
+      currentYear,
+      error: null
+    });
 
   } catch (err) {
     console.error("Dashboard Error:", err);
-    res.status(500).send("Error loading dashboard.");
+    res.status(500).render('dashboard/hub', {
+      title: 'Dashboard',
+      total_units: 0,
+      occupied_units: 0,
+      vacant_units: 0,
+      monthOptionsHTML: '',
+      currentYear: new Date().getFullYear(),
+      error: 'Error loading dashboard: ' + err.message
+    });
   }
 });
 

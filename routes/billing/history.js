@@ -1,7 +1,7 @@
+// routes/billing/history.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
-const { wrapHTML } = require('../../views/layout');   // ← Correct path
 
 router.get('/history', async (req, res) => {
   try {
@@ -41,38 +41,19 @@ router.get('/history', async (req, res) => {
       `;
     });
 
-    res.send(wrapHTML("History & Details", `
-      <div class="max-w-6xl mx-auto px-4">
-        <h1 class="text-3xl font-bold mb-2">History & Details</h1>
-        <p class="text-gray-600 mb-8">Click on any tenant to view full transaction history</p>
-
-        <div class="mb-8">
-          <input type="text" id="tenantSearch" 
-                 placeholder="Search tenants by name..." 
-                 onkeyup="filterTenants()"
-                 class="w-full border border-gray-300 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-emerald-500">
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="tenantList">
-          ${tenantListHTML || '<p class="col-span-full text-center py-12 text-gray-500">No tenants found.</p>'}
-        </div>
-      </div>
-
-      <script>
-        function filterTenants() {
-          const filter = document.getElementById("tenantSearch").value.toLowerCase();
-          const cards = document.getElementsByClassName("tenant-card");
-          for (let i = 0; i < cards.length; i++) {
-            const text = cards[i].textContent.toLowerCase();
-            cards[i].style.display = text.includes(filter) ? "" : "none";
-          }
-        }
-      </script>
-    `));
+    res.render('billing/history', {
+      title: 'History & Details',
+      tenantListHTML: tenantListHTML || '<p class="col-span-full text-center py-12 text-gray-500">No tenants found.</p>',
+      error: null
+    });
 
   } catch (err) {
     console.error("History Page Error:", err.message);
-    res.status(500).send(`Error loading history: ${err.message}`);
+    res.status(500).render('billing/history', {
+      title: 'History & Details',
+      tenantListHTML: '',
+      error: `Error loading history: ${err.message}`
+    });
   }
 });
 

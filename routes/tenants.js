@@ -1,9 +1,7 @@
+// routes/tenants.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const { wrapHTML } = require('../views/layout');
-const ejs = require('ejs');
-const path = require('path');
 
 // ========================================
 // Tenant Registration Screen
@@ -27,16 +25,19 @@ router.get('/register-tenant', async (req, res) => {
       `;
     });
 
-    const pageContent = await ejs.renderFile(
-      path.join(__dirname, '../views/tenants/register.ejs'), 
-      { vacantUnitsOptions }
-    );
-
-    res.send(wrapHTML("Register New Tenant", pageContent));
+    res.render('tenants/register', { 
+      title: 'Register New Tenant',
+      vacantUnitsOptions,
+      error: null
+    });
 
   } catch (err) {
     console.error("Register Tenant Error:", err);
-    res.status(500).send("Error loading registration form.");
+    res.status(500).render('tenants/register', { 
+      title: 'Register New Tenant',
+      vacantUnitsOptions: '',
+      error: 'Error loading registration form: ' + err.message 
+    });
   }
 });
 
@@ -103,18 +104,19 @@ router.get('/manage-profiles', async (req, res) => {
       `;
     });
 
-    const pageContent = `
-      <div class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold mb-8">Manage Active Tenants</h1>
-        ${rowsHTML || '<p class="text-gray-500 text-center py-12">No active tenants found.</p>'}
-      </div>
-    `;
-
-    res.send(wrapHTML("Manage Tenants", pageContent));
+    res.render('tenants/manage-profiles', { 
+      title: 'Manage Active Tenants',
+      rowsHTML: rowsHTML || '<p class="text-gray-500 text-center py-12">No active tenants found.</p>',
+      error: null
+    });
 
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error loading tenant profiles.");
+    res.status(500).render('tenants/manage-profiles', { 
+      title: 'Manage Active Tenants',
+      rowsHTML: '',
+      error: 'Error loading tenant profiles: ' + err.message 
+    });
   }
 });
 

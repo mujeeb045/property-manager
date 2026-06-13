@@ -1,3 +1,4 @@
+// routes/billing/tenant-pdf.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
@@ -18,15 +19,17 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
 
     const tenantQuery = await pool.query(`
       SELECT tenants.*, COALESCE(units.unit_name, 'No Unit') as unit_name 
-      FROM tenants LEFT JOIN units ON tenants.unit_id = units.id 
+      FROM tenants 
+      LEFT JOIN units ON tenants.unit_id = units.id 
       WHERE tenants.id = $1
     `, [tenantId]);
 
-    if (tenantQuery.rows.length === 0) return res.status(404).send("Tenant not found");
+    if (tenantQuery.rows.length === 0) {
+      return res.status(404).send("Tenant not found");
+    }
 
     const tenant = tenantQuery.rows[0];
 
-    // Safe query with correct column names
     const transactions = await pool.query(`
       SELECT 
         TO_CHAR(transaction_date, 'dd Mon YYYY') as period,
@@ -55,7 +58,7 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
     doc.fontSize(13).text(`Unit: ${tenant.unit_name}`, { align: 'center' });
     doc.moveDown(2);
 
-    // Tenant Info
+    // Tenant Information
     doc.fontSize(12).font('Helvetica-Bold').text('TENANT INFORMATION');
     doc.moveDown(0.4);
 
@@ -63,9 +66,9 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
     doc.font('Helvetica').fontSize(11);
 
     doc.text(`Father's Name : ${tenant.father_name || 'N/A'}`, 70, infoY);
-    doc.text(`Phone          : ${tenant.phone}`, 70, infoY + 20);
+    doc.text(`Phone          : ${tenant.phone || 'N/A'}`, 70, infoY + 20);
     doc.text(`Aadhaar        : ${tenant.id_card_no || 'N/A'}`, 70, infoY + 40);
-    doc.text(`Security Deposit : ${formatINR(Number(tenant.security_deposit))}`, 70, infoY + 60);
+    doc.text(`Security Deposit : ${formatINR(Number(tenant.security_deposit || 0))}`, 70, infoY + 60);
 
     doc.moveDown(3);
 
@@ -84,7 +87,6 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
     doc.lineWidth(2).moveTo(70, tableTop + 18).lineTo(570, tableTop + 18).stroke();
 
     let y = tableTop + 45;
-
     doc.font('Helvetica').fontSize(9.8);
 
     transactions.rows.forEach(row => {
@@ -109,7 +111,7 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
     doc.end();
 
   } catch (err) {
-    console.error("PDF Error:", err.message);
+    console.error("PDF Generation Error:", err.message);
     res.status(500).send("Error generating PDF: " + err.message);
   }
 });

@@ -1,0 +1,18 @@
+<h1 class="text-3xl font-bold mb-8">👥 Manage Active Tenants</h1>
+
+<% if (error) { %>
+    <div class="bg-red-100 text-red-700 p-4 rounded-lg mb-6">
+        <%= error %>
+    </div>
+    <% } %>
+
+        <div class="max-w-4xl mx-auto">
+            <%- rowsHTML %>
+        </div>
+
+        <div class="mt-8">
+            <a href="/register-tenant"
+                class="inline-block bg-blue-600 text-white px-8 py-4 rounded-xl hover:bg-blue-700">
+                + Register New Tenant
+            </a>
+        </div>

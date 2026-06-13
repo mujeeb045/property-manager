@@ -1,0 +1,85 @@
+<div class="max-w-6xl mx-auto px-4 py-6">
+    <a href="/history" class="inline-flex items-center gap-2 text-emerald-600 hover:underline mb-6">← Back to
+        History</a>
+
+    <% if (error) { %>
+        <div class="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-2xl mb-6">
+            <%= error %>
+        </div>
+        <% } else { %>
+
+            <div class="bg-white rounded-3xl p-8 shadow-sm">
+                <!-- Tenant Header -->
+                <div class="flex justify-between items-start mb-8">
+                    <div>
+                        <h1 class="text-3xl font-bold">
+                            <%= tenant.name %>
+                        </h1>
+                        <p class="text-xl text-gray-600">Unit: <%= tenant.unit_name %>
+                        </p>
+                    </div>
+                    <a href="/tenant-pdf/<%= tenant.id %>"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium flex items-center gap-2">
+                        📥 Download PDF Statement
+                    </a>
+                </div>
+
+                <!-- Add Extra Charge -->
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-8">
+                    <h3 class="font-semibold mb-4 text-amber-800">Add Extra Charge</h3>
+                    <form action="/add-extra" method="POST" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <input type="hidden" name="tenant_id" value="<%= tenant.id %>">
+                        <input type="text" name="particular" placeholder="Description (e.g. Plumber repair)"
+                            class="border border-gray-300 rounded-xl px-4 py-3" required>
+                        <input type="number" name="amount" placeholder="Amount (₹)"
+                            class="border border-gray-300 rounded-xl px-4 py-3" required>
+                        <button type="submit"
+                            class="bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-medium">
+                            Add Extra Charge
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Transactions Table -->
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b-2 border-gray-300">
+                            <th class="text-left py-4">Date</th>
+                            <th class="text-left py-4">Particular</th>
+                            <th class="text-right py-4">Amount</th>
+                            <th class="text-right py-4">Balance</th>
+                            <th class="text-center py-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <%- rowsHTML %>
+                    </tbody>
+                </table>
+            </div>
+
+            <% } %>
+</div>
+
+<script>
+    async function deleteTransaction(id) {
+        if (!confirm("Delete this transaction? This action cannot be undone.")) return;
+
+        const res = await fetch('/delete-transaction/' + id, { method: 'POST' });
+        if (res.ok) location.reload();
+        else alert("Failed to delete transaction");
+    }
+
+    function editTransaction(id, currentAmount) {
+        const newAmount = prompt("Enter new amount:", currentAmount);
+        if (newAmount === null || newAmount === '' || isNaN(newAmount)) return;
+
+        fetch('/edit-transaction/' + id, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: parseFloat(newAmount) })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else alert("Failed to update amount");
+        });
+    }
+</script>

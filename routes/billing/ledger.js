@@ -1,7 +1,7 @@
+// routes/billing/ledger.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
-const { wrapHTML } = require('../../views/layout');
 
 // ========================
 // This Month Collection
@@ -118,21 +118,22 @@ router.get('/tenants', async (req, res) => {
       `;
     });
 
-    res.send(wrapHTML(`This Month Collection - ${selectedMonth}`, `
-      <div class="max-w-5xl mx-auto">
-        <div class="mb-8">
-          <h1 class="text-3xl font-bold">This Month Collection</h1>
-          <p class="text-gray-600">${selectedMonth}</p>
-        </div>
-        <div class="space-y-4">
-          ${tenantRows || '<p class="text-center py-12 text-gray-500">No active tenants found.</p>'}
-        </div>
-      </div>
-    `));
+    // At the end of the successful try block (around line 110-120)
+    res.render('billing/ledger', {
+      title: `This Month Collection - ${selectedMonth}`,
+      selectedMonth,
+      tenantRows: tenantRows || '<p class="text-center py-12 text-gray-500">No active tenants found.</p>',
+      error: null
+    });
 
   } catch (err) {
     console.error("Ledger Error:", err.message);
-    res.status(500).send(`Error loading ledger: ${err.message}`);
+    res.status(500).render('billing/ledger', {
+      title: 'This Month Collection',
+      selectedMonth: '',
+      tenantRows: '',
+      error: `Error loading ledger: ${err.message}`
+    });
   }
 });
 

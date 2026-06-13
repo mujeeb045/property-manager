@@ -1,0 +1,30 @@
+<div class="max-w-6xl mx-auto px-4">
+    <h1 class="text-3xl font-bold mb-2">📜 History & Details</h1>
+    <p class="text-gray-600 mb-8">Click on any tenant to view full transaction history</p>
+
+    <% if (error) { %>
+        <div class="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-2xl mb-6">
+            <%= error %>
+        </div>
+        <% } %>
+
+            <div class="mb-8">
+                <input type="text" id="tenantSearch" placeholder="Search tenants by name..." onkeyup="filterTenants()"
+                    class="w-full border border-gray-300 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-emerald-500">
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="tenantList">
+                <%- tenantListHTML %>
+            </div>
+</div>
+
+<script>
+    function filterTenants() {
+        const filter = document.getElementById("tenantSearch").value.toLowerCase();
+        const cards = document.getElementsByClassName("tenant-card");
+        for (let i = 0; i < cards.length; i++) {
+            const text = cards[i].textContent.toLowerCase();
+            cards[i].style.display = text.includes(filter) ? "" : "none";
+        }
+    }
+</script>

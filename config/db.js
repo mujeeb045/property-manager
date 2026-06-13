@@ -1,3 +1,4 @@
+// config/db.js  (Updated version)
 const { Pool } = require('pg');
 require('dotenv').config();
 
@@ -10,16 +11,14 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// Enhanced Database Initialization
 async function initDatabase() {
   try {
     console.log("🔄 Connecting to PostgreSQL...");
 
-    // Test connection
     await pool.query('SELECT NOW()');
     console.log("✅ Database connection successful!");
 
-    // 1. Permanent Portions / Units Asset Table
+    // 1. Units
     await pool.query(`
       CREATE TABLE IF NOT EXISTS units (
         id SERIAL PRIMARY KEY,
@@ -31,7 +30,7 @@ async function initDatabase() {
       );
     `);
 
-    // 2. Permanent Tenant Profiles
+    // 2. Tenants
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tenants (
         id SERIAL PRIMARY KEY,
@@ -48,47 +47,24 @@ async function initDatabase() {
       );
     `);
 
-    // 3. Monthly Invoice Records
+    // 3. TRANSACTIONS TABLE (The only active transaction table now)
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS invoices (
-        id SERIAL PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS transactions (
+        tran_id SERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
-        billing_month TEXT NOT NULL,
-        rent_charged NUMERIC DEFAULT 0,
-        maintenance_charged NUMERIC DEFAULT 0,
-        amount_paid NUMERIC DEFAULT 0,
-        arrears_brought_forward NUMERIC DEFAULT 0,
-        UNIQUE(tenant_id, billing_month)
+        transaction_date DATE DEFAULT CURRENT_DATE,
+        tran_type TEXT NOT NULL,           -- 'Bill', 'Extra', 'Payment'
+        particular TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        tran_mode TEXT DEFAULT 'Cash',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // 4. Itemized Maintenance Items
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS invoice_extra_items (
-        id SERIAL PRIMARY KEY,
-        invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
-        item_desc TEXT NOT NULL,
-        item_amount NUMERIC NOT NULL,
-        item_billing_month TEXT DEFAULT ''
-      );
-    `);
+    console.log("✅ Core tables (units, tenants, transactions) initialized successfully!");
 
-    // 5. Payment Logs + Receipt Tracking
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS payment_logs (
-        id SERIAL PRIMARY KEY,
-        invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
-        amount_paid NUMERIC NOT NULL,
-        receipt_no TEXT,
-        payment_mode TEXT DEFAULT 'Cash',
-        reference_no TEXT DEFAULT '',
-        payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    console.log("✅ All database tables initialized successfully!");
-
-    // Data Integrity Check
+    // Data Integrity
     await pool.query(`
       UPDATE units
       SET is_occupied = FALSE
@@ -100,26 +76,13 @@ async function initDatabase() {
     `);
 
   } catch (err) {
-    console.error("❌ Database initialization failed:");
-    console.error("   Error:", err.message);
-    
-    if (err.code === '3D000') {
-      console.error("💡 Hint: Database 'property_manager' does not exist.");
-      console.error("   Please create it using: CREATE DATABASE property_manager;");
-    } else if (err.code === '28P01' || err.message.includes('password')) {
-      console.error("💡 Hint: Check your DATABASE_URL password in .env file");
-    } else if (err.code === 'ECONNREFUSED') {
-      console.error("💡 Hint: PostgreSQL server is not running.");
-    }
-    
-    console.error("\nFull error for debugging:", err);
-    throw err; // Re-throw so server knows something went wrong
+    console.error("❌ Database initialization failed:", err.message);
+    throw err;
   }
 }
 
-// Run initialization
 initDatabase().catch(err => {
-  console.error("\n💥 Critical: Could not initialize database. Server may still start but features will fail.");
+  console.error("💥 Critical DB error:", err.message);
 });
 
 module.exports = pool;

@@ -1,9 +1,7 @@
+// routes/units.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const { wrapHTML } = require('../views/layout');
-const ejs = require('ejs');
-const path = require('path');
 
 // ========================================
 // Add / Edit Unit Screen
@@ -62,16 +60,17 @@ router.get('/add-unit', async (req, res) => {
         </tr>`;
     });
 
-    const pageContent = await ejs.renderFile(
-      path.join(__dirname, '../views/units/add-unit.ejs'), 
-      { unitsRowsHTML }
-    );
-
-    res.send(wrapHTML("Units Management", pageContent));
+    res.render('units/add-unit', { 
+      title: 'Units Management',
+      unitsRowsHTML 
+    });
 
   } catch (err) {
     console.error("Units Page Error:", err);
-    res.status(500).send("Error loading units page.");
+    res.status(500).render('units/add-unit', { 
+      title: 'Units Management',
+      error: 'Error loading units page.' 
+    });
   }
 });
 

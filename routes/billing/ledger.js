@@ -12,13 +12,13 @@ router.get('/tenants', async (req, res) => {
     const currentMonthLabel = `${nowIST.toLocaleDateString('en-IN', { month: 'short' })} ${nowIST.getFullYear()}`;
     const selectedMonth = req.query.month || currentMonthLabel;
 
+    // Updated query for multiple units support
     const ledger = await pool.query(`
       SELECT 
         t.id AS tenant_id,
         t.name,
         t.phone,
 
-        -- Get all units with their rent & maintenance as JSON
         COALESCE(
           JSON_AGG(
             JSON_BUILD_OBJECT(
@@ -30,7 +30,6 @@ router.get('/tenants', async (req, res) => {
           '[]'
         ) as units_data,
 
-        -- Current month bill
         COALESCE((
           SELECT SUM(amount) 
           FROM transactions 
@@ -39,7 +38,6 @@ router.get('/tenants', async (req, res) => {
             AND particular LIKE $1
         ), 0) as current_bill,
 
-        -- Extras
         COALESCE((
           SELECT STRING_AGG(particular || ': Rs.' || amount, '\n')
           FROM transactions 
@@ -48,7 +46,6 @@ router.get('/tenants', async (req, res) => {
             AND particular LIKE $1
         ), '') as extras_details,
 
-        -- Overall balance
         COALESCE((
           SELECT SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END)
           FROM transactions 
@@ -69,7 +66,7 @@ router.get('/tenants', async (req, res) => {
       const units = row.units_data || [];
       const extrasDetails = row.extras_details || '';
 
-      // Calculate totals from units_data
+      // Calculate totals
       let totalRent = 0;
       let totalMaintenance = 0;
 
@@ -113,11 +110,10 @@ router.get('/tenants', async (req, res) => {
       const cleanPhone = String(row.phone || '').replace(/\D/g, '');
       const whatsappLink = cleanPhone ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(waText)}` : '#';
 
-      // ==================== TENANT CARD ====================
+      // Tenant Card
       tenantRows += `
         <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            
             <div class="flex-1">
               <strong class="text-lg">👤 ${row.name}</strong>
               <span class="text-gray-500 ml-2">(${units.map(u => u.unit_name).join(', ')})</span>

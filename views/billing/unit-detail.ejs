@@ -24,7 +24,7 @@
         </div>
 
         <!-- Current Tenant Info -->
-        <% if (unit.is_occupied && unit.tenant_name) { %>
+        <% if (unit.tenant_id) { %>
             <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 mb-8">
                 <h3 class="font-semibold text-emerald-800 mb-2">Current Tenant</h3>
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -3,7 +3,9 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 
-// Record Payment
+// ========================
+// Record New Payment
+// ========================
 router.post('/collect-invoice-payment', async (req, res) => {
   try {
     const { tenant_id, paymentAmount, paymentMode = 'Cash', selectedMonth } = req.body;
@@ -20,11 +22,10 @@ router.post('/collect-invoice-payment', async (req, res) => {
     `, [tenant_id, amount, paymentMode, selectedMonth ? `Payment for ${selectedMonth}` : '']);
 
     const tenantInfo = await pool.query(`
-      SELECT name, phone 
-      FROM tenants WHERE id = $1
+      SELECT name, phone FROM tenants WHERE id = $1
     `, [tenant_id]);
 
-    const tenant = tenantInfo.rows[0];
+    const tenant = tenantInfo.rows[0] || { name: 'Unknown', phone: '' };
 
     let receiptText = `Payment Received\n\n`;
     receiptText += `Tenant: ${tenant.name}\n`;
@@ -40,16 +41,22 @@ router.post('/collect-invoice-payment', async (req, res) => {
       title: 'Payment Recorded',
       amount,
       tenantName: tenant.name,
-      whatsappLink
+      whatsappLink,
+      error: null
     });
 
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error recording payment");
+    res.status(500).render('billing/payment-success', {
+      title: 'Payment Failed',
+      error: 'Error recording payment: ' + err.message
+    });
   }
 });
 
+// ========================
 // Add Extra Charge
+// ========================
 router.post('/add-extra', async (req, res) => {
   try {
     const { tenant_id, particular, amount, transaction_date } = req.body;
@@ -69,7 +76,9 @@ router.post('/add-extra', async (req, res) => {
   }
 });
 
+// ========================
 // Edit Transaction
+// ========================
 router.post('/edit-transaction/:id', async (req, res) => {
   try {
     const { amount } = req.body;
@@ -81,7 +90,9 @@ router.post('/edit-transaction/:id', async (req, res) => {
   }
 });
 
+// ========================
 // Delete Transaction
+// ========================
 router.post('/delete-transaction/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM transactions WHERE tran_id = $1', [req.params.id]);

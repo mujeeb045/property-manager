@@ -1,13 +1,13 @@
-// routes/index.js  ← MAIN FILE
+// routes/index.js - MAIN AGGREGATOR
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 
-// Import all route groups
+// Import all routes
 const unitRoutes = require('./units');
 const tenantRoutes = require('./tenants');
 
-// Import billing sub-routes directly
+// Import billing routes directly
 const ledgerRouter = require('./billing/ledger');
 const historyRouter = require('./billing/history');
 const paymentsRouter = require('./billing/payments');
@@ -18,8 +18,6 @@ const settingsRouter = require('./billing/settings');
 // Mount routes
 router.use('/', unitRoutes);
 router.use('/', tenantRoutes);
-
-// Billing routes
 router.use('/', ledgerRouter);
 router.use('/', historyRouter);
 router.use('/', paymentsRouter);
@@ -35,9 +33,10 @@ router.get('/', async (req, res) => {
     const currentYear = nowIST.getFullYear();
 
     const countsQuery = await pool.query(`
-      SELECT COUNT(*) as total_units,
-             COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units,
-             COUNT(CASE WHEN is_occupied = FALSE THEN 1 END) as vacant_units
+      SELECT
+        COUNT(*) as total_units,
+        COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units,
+        COUNT(CASE WHEN is_occupied = FALSE THEN 1 END) as vacant_units
       FROM units
     `);
 
@@ -56,9 +55,13 @@ router.get('/', async (req, res) => {
       currentYear,
       error: null
     });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).render('dashboard/hub', { title: 'Dashboard', error: 'Error loading dashboard' });
+    console.error("Dashboard Error:", err);
+    res.status(500).render('dashboard/hub', {
+      title: 'Dashboard',
+      error: 'Error loading dashboard'
+    });
   }
 });
 

@@ -1,5 +1,6 @@
 <div
     style="max-width:620px; margin:80px auto; text-align:center; padding:40px; background:white; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.1);">
+
     <% if (error) { %>
         <h1 style="color:#ef4444; font-size:32px;">❌ Payment Failed</h1>
         <p style="font-size:18px; margin:20px 0;">
@@ -13,22 +14,8 @@
                     </strong>
             </p>
 
-            <div class="text-left inline-block text-left bg-gray-50 p-6 rounded-2xl mb-8">
-                <p><strong>Unit:</strong>
-                    <%= unitName %>
-                </p>
-                <p><strong>Mode:</strong>
-                    <%= paymentMode %>
-                </p>
-                <% if (selectedMonth) { %>
-                    <p><strong>For Month:</strong>
-                        <%= selectedMonth %>
-                    </p>
-                    <% } %>
-            </div>
-
             <a href="<%= whatsappLink %>" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:18px 40px; 
-                  border-radius:50px; text-decoration:none; font-size:19px; margin:20px 0;">
+                  border-radius:50px; text-decoration:none; font-size:19px; margin:30px 0;">
                 📱 Send Receipt on WhatsApp
             </a>
 

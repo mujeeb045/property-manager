@@ -107,4 +107,31 @@ router.post('/generate-monthly-invoices', async (req, res) => {
   }
 });
 
+// GET: PDF Download Section in Settings
+router.get('/pdf-download', async (req, res) => {
+  try {
+    const tenants = await pool.query(`
+      SELECT 
+        t.id,
+        t.name,
+        t.is_active,
+        STRING_AGG(u.unit_name, ', ') as unit_names
+      FROM tenants t
+      LEFT JOIN tenant_units tu ON tu.tenant_id = t.id
+      LEFT JOIN units u ON tu.unit_id = u.id
+      GROUP BY t.id, t.name, t.is_active
+      ORDER BY t.is_active DESC, t.name ASC
+    `);
+
+    res.render('billing/pdf-download', {
+      title: 'Download Tenant PDF',
+      tenants: tenants.rows
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error loading PDF download page");
+  }
+});
+
 module.exports = router;

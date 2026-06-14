@@ -3,171 +3,182 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 
-// ========================
-// This Month Collection
-// ========================
 router.get('/tenants', async (req, res) => {
   try {
     const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const currentMonthLabel = `${nowIST.toLocaleDateString('en-IN', { month: 'short' })} ${nowIST.getFullYear()}`;
     const selectedMonth = req.query.month || currentMonthLabel;
 
-    // Updated query for multiple units support
-    const ledger = await pool.query(`
+    // Get tenants with units
+    const tenantsData = await pool.query(`
       SELECT 
-        t.id AS tenant_id,
+        t.id as tenant_id,
         t.name,
         t.phone,
-
-        COALESCE(
-          JSON_AGG(
-            JSON_BUILD_OBJECT(
-              'unit_name', u.unit_name,
-              'rent', u.rent_amount,
-              'maintenance', u.maintenance_amount
-            )
-          ) FILTER (WHERE u.id IS NOT NULL),
-          '[]'
-        ) as units_data,
-
-        COALESCE((
-          SELECT SUM(amount) 
-          FROM transactions 
-          WHERE tenant_id = t.id 
-            AND tran_type = 'Bill' 
-            AND particular LIKE $1
-        ), 0) as current_bill,
-
-        COALESCE((
-          SELECT STRING_AGG(particular || ': Rs.' || amount, '\n')
-          FROM transactions 
-          WHERE tenant_id = t.id 
-            AND tran_type = 'Extra' 
-            AND particular LIKE $1
-        ), '') as extras_details,
-
-        COALESCE((
-          SELECT SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END)
-          FROM transactions 
-          WHERE tenant_id = t.id
-        ), 0) as full_balance
-
+        JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'unit_id', u.id,
+            'unit_name', u.unit_name,
+            'rent', u.rent_amount,
+            'maintenance', u.maintenance_amount
+          )
+        ) as units
       FROM tenants t
-      LEFT JOIN tenant_units tu ON tu.tenant_id = t.id AND tu.is_active = true
+      LEFT JOIN tenant_units tu ON tu.tenant_id = t.id AND tu.is_active = TRUE
       LEFT JOIN units u ON tu.unit_id = u.id
-      WHERE t.is_active = true
+      WHERE t.is_active = TRUE
       GROUP BY t.id, t.name, t.phone
       ORDER BY t.name ASC
+    `);
+
+    // Get extras for current month
+    const extrasData = await pool.query(`
+      SELECT tenant_id, unit_id, SUM(amount) as extra_amount
+      FROM transactions 
+      WHERE tran_type = 'Extra' AND particular LIKE $1
+      GROUP BY tenant_id, unit_id
     `, [`%${selectedMonth}%`]);
 
-    let tenantRows = '';
+    const extrasMap = {};
+    extrasData.rows.forEach(row => {
+      if (!extrasMap[row.tenant_id]) extrasMap[row.tenant_id] = {};
+      extrasMap[row.tenant_id][row.unit_id] = Number(row.extra_amount);
+    });
 
-    ledger.rows.forEach(row => {
-      const units = row.units_data || [];
-      const extrasDetails = row.extras_details || '';
+    // Step 1: Collect all tenants with their balance
+    let tenantList = [];
 
-      // Calculate totals
-      let totalRent = 0;
-      let totalMaintenance = 0;
-
-      units.forEach(unit => {
-        totalRent += Number(unit.rent) || 0;
-        totalMaintenance += Number(unit.maintenance) || 0;
-      });
-
-      const currentBill = Number(row.current_bill) || 0;
-      const fullBalance = Number(row.full_balance) || 0;
-
-      // ==================== WHATSAPP MESSAGE ====================
-      let waText = `Rent Invoice - ${selectedMonth}\n\n`;
-      waText += `Tenant: ${row.name}\n`;
-      waText += `Units: ${units.map(u => u.unit_name).join(', ')}\n\n`;
-
-      waText += `Bill Details:\n`;
+    for (const tenant of tenantsData.rows) {
+      const units = tenant.units || [];
+      let currentMonthDues = 0;
+      let unitsHTML = '';
 
       units.forEach(unit => {
         const rent = Number(unit.rent) || 0;
         const maintenance = Number(unit.maintenance) || 0;
+        const unitExtras = (extrasMap[tenant.tenant_id] && extrasMap[tenant.tenant_id][unit.unit_id]) || 0;
+        const unitTotal = rent + maintenance + unitExtras;
 
-        waText += `• ${unit.unit_name}\n`;
-        waText += `   - Rent        : Rs.${rent.toLocaleString('en-IN')}\n`;
-        waText += `   - Maintenance : Rs.${maintenance.toLocaleString('en-IN')}\n\n`;
+        currentMonthDues += unitTotal;
+
+        unitsHTML += `
+          <div class="flex justify-between items-center text-sm py-2 border-b">
+            <span class="font-medium">${unit.unit_name}</span>
+            <span class="text-right">
+              Rent: ₹${rent.toLocaleString('en-IN')}<br>
+              Maint: ₹${maintenance.toLocaleString('en-IN')}<br>
+              ${unitExtras > 0 ? `Extras: ₹${unitExtras.toLocaleString('en-IN')}<br>` : ''}
+              <span class="font-semibold text-emerald-700">Total: ₹${unitTotal.toLocaleString('en-IN')}</span>
+            </span>
+          </div>
+        `;
       });
 
-      if (extrasDetails) {
-        waText += `Extras:\n${extrasDetails}\n\n`;
+      // Get total outstanding
+      const balance = await pool.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END), 0) as outstanding
+        FROM transactions 
+        WHERE tenant_id = $1
+      `, [tenant.tenant_id]);
+
+      const totalOutstanding = Number(balance.rows[0].outstanding);
+
+      tenantList.push({
+        tenant,
+        unitsHTML,
+        totalOutstanding,
+        currentMonthDues
+      });
+    }
+
+    // Step 2: Sort - Due tenants first, then paid/advance
+    tenantList.sort((a, b) => {
+      if (a.totalOutstanding > 0 && b.totalOutstanding <= 0) return -1;
+      if (a.totalOutstanding <= 0 && b.totalOutstanding > 0) return 1;
+      return 0;
+    });
+
+    // Step 3: Build HTML
+    let tenantRows = '';
+
+    tenantList.forEach(item => {
+      const { tenant, unitsHTML, totalOutstanding } = item;
+
+      let balanceHTML = '';
+      if (totalOutstanding > 0) {
+        balanceHTML = `<div class="text-2xl font-bold text-red-600">₹${totalOutstanding.toLocaleString('en-IN')}</div>`;
+      } else if (totalOutstanding < 0) {
+        balanceHTML = `<div class="text-2xl font-bold text-emerald-600">₹${totalOutstanding.toLocaleString('en-IN')} <span class="text-sm font-normal">(Advance)</span></div>`;
+      } else {
+        balanceHTML = `<div class="text-2xl font-bold text-gray-600">₹0</div>`;
       }
 
-      waText += `────────────────────\n`;
-      waText += `Total Due this month : Rs.${currentBill.toLocaleString('en-IN')}\n`;
-      waText += `Current Balance      : Rs.${fullBalance.toLocaleString('en-IN')}\n\n`;
-
-      waText += `Please pay by 10th of the month.\n`;
-      waText += `Late payment charges of Rs.200 will apply after 10th.\n\n`;
-      waText += `Thank you!`;
-      // ========================================================
-
-      const cleanPhone = String(row.phone || '').replace(/\D/g, '');
-      const whatsappLink = cleanPhone ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(waText)}` : '#';
-
-      // Tenant Card
       tenantRows += `
-        <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div class="flex-1">
-              <strong class="text-lg">👤 ${row.name}</strong>
-              <span class="text-gray-500 ml-2">(${units.map(u => u.unit_name).join(', ')})</span>
-              <div class="text-sm text-gray-600 mt-1">
-                ${row.phone ? '+91 ' + row.phone : 'No phone'}
-              </div>
+        <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm mb-4 tenant-card" data-tenant-name="${tenant.name.toLowerCase()}">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <h3 class="text-xl font-bold">👤 ${tenant.name}</h3>
+              <p class="text-sm text-gray-600">${tenant.phone ? '+91 ' + tenant.phone : ''}</p>
             </div>
-
-            <div class="flex flex-col sm:items-end gap-3">
-              <div class="text-right">
-                <div class="text-xs text-gray-500">Total Balance</div>
-                <div class="font-bold text-2xl ${fullBalance > 0 ? 'text-red-600' : 'text-emerald-600'}">
-                  ₹${fullBalance.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div class="flex gap-2">
-                <a href="${whatsappLink}" target="_blank" 
-                   class="bg-green-500 hover:bg-green-600 text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-sm font-medium">
-                  📱 WhatsApp
-                </a>
-
-                <form action="/collect-invoice-payment" method="POST" class="flex gap-2">
-                  <input type="hidden" name="tenant_id" value="${row.tenant_id}">
-                  <input type="hidden" name="selectedMonth" value="${selectedMonth}">
-                  <input type="number" name="paymentAmount" placeholder="₹" 
-                         class="w-24 border border-gray-300 rounded-2xl px-4 py-3 text-sm" required>
-                  <select name="paymentMode" class="border border-gray-300 rounded-2xl px-3 py-3 text-sm">
-                    <option value="UPI">UPI</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Bank Transfer">Bank</option>
-                  </select>
-                  <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-medium">
-                    Receive
-                  </button>
-                </form>
-              </div>
+            
+            <div class="text-right">
+              <div class="text-xs text-gray-500">Balance</div>
+              ${balanceHTML}
             </div>
           </div>
+
+          <div class="mb-4">
+            <h4 class="font-semibold text-sm mb-2">Units Breakdown (This Month)</h4>
+            ${unitsHTML || '<p class="text-sm text-gray-500">No active units</p>'}
+          </div>
+
+          <!-- Payment Form with Comments -->
+<form action="/collect-invoice-payment" method="POST" class="flex flex-wrap gap-2 items-end">
+    <input type="hidden" name="tenant_id" value="${tenant.tenant_id}">
+    <input type="hidden" name="selectedMonth" value="${selectedMonth}">
+    
+    <div class="flex flex-col">
+        <label class="text-xs text-gray-500 mb-1">Amount</label>
+        <input type="number" name="paymentAmount" placeholder="Amount" 
+               class="border border-gray-300 rounded-2xl px-4 py-3 text-sm w-28" required>
+    </div>
+    
+    <div class="flex flex-col">
+        <label class="text-xs text-gray-500 mb-1">Mode</label>
+        <select name="paymentMode" class="border border-gray-300 rounded-2xl px-3 py-3 text-sm">
+            <option value="UPI">UPI</option>
+            <option value="Cash">Cash</option>
+            <option value="Bank Transfer">Bank</option>
+        </select>
+    </div>
+
+    <!-- Comments Field -->
+    <div class="flex flex-col flex-1 min-w-[200px]">
+        <label class="text-xs text-gray-500 mb-1">Comments (Optional)</label>
+        <input type="text" name="comments" placeholder="e.g. Paid by father, Partial payment..." 
+               class="border border-gray-300 rounded-2xl px-4 py-3 text-sm">
+    </div>
+    
+    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-medium h-[48px]">
+        Receive Payment
+    </button>
+</form>
         </div>
       `;
     });
 
     res.render('billing/ledger', {
-      title: `This Month Collection - ${selectedMonth}`,
+      title: `Rent Collection - ${selectedMonth}`,
       selectedMonth,
-      tenantRows: tenantRows || '<p class="text-center py-12 text-gray-500">No active tenants found.</p>',
+      tenantRows,
       error: null
     });
 
   } catch (err) {
     console.error("Ledger Error:", err.message);
     res.status(500).render('billing/ledger', {
-      title: 'This Month Collection',
+      title: 'Rent Collection',
       selectedMonth: '',
       tenantRows: '',
       error: `Error loading ledger: ${err.message}`

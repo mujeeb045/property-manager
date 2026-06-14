@@ -1,4 +1,4 @@
-// routes/billing/tenant-detail.js - SIMPLIFIED VERSION
+// routes/billing/tenant-detail.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
@@ -7,11 +7,9 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
   try {
     const tenantId = req.params.tenantId;
 
-    // Get tenant basic info + current units
+    // Get tenant + current units
     const tenantRes = await pool.query(`
-      SELECT 
-        t.*,
-        STRING_AGG(u.unit_name, ', ') as current_units
+      SELECT t.*, STRING_AGG(u.unit_name, ', ') as current_units
       FROM tenants t
       LEFT JOIN tenant_units tu ON tu.tenant_id = t.id AND tu.is_active = TRUE
       LEFT JOIN units u ON tu.unit_id = u.id
@@ -25,7 +23,7 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
 
     const tenant = tenantRes.rows[0];
 
-    // Get list of units separately (simpler)
+    // Get units list for dropdown
     const unitsRes = await pool.query(`
       SELECT u.id, u.unit_name
       FROM tenant_units tu
@@ -34,7 +32,7 @@ router.get('/history/tenant/:tenantId', async (req, res) => {
       ORDER BY u.unit_name
     `, [tenantId]);
 
-    tenant.units_list = unitsRes.rows;   // Simple array
+    tenant.units_list = unitsRes.rows;
 
     // Get transactions
     const transactions = await pool.query(`

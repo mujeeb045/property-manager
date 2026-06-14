@@ -9,9 +9,10 @@ const tenantRoutes = require('./tenants');
 
 // Import billing routes directly
 const ledgerRouter = require('./billing/ledger');
+const tenantDetailRouter = require('./billing/tenant-detail');
 const historyRouter = require('./billing/history');
 const paymentsRouter = require('./billing/payments');
-const tenantDetailRouter = require('./billing/tenant-detail');
+
 const tenantPdfRouter = require('./billing/tenant-pdf');
 const settingsRouter = require('./billing/settings');
 
@@ -19,9 +20,10 @@ const settingsRouter = require('./billing/settings');
 router.use('/', unitRoutes);
 router.use('/', tenantRoutes);
 router.use('/', ledgerRouter);
+router.use('/', tenantDetailRouter);
 router.use('/', historyRouter);
 router.use('/', paymentsRouter);
-router.use('/', tenantDetailRouter);
+
 router.use('/', tenantPdfRouter);
 router.use('/', settingsRouter);
 

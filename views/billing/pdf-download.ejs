@@ -1,0 +1,43 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+    <h1 class="text-3xl font-bold mb-6">Download Tenant Statement (PDF)</h1>
+
+    <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <form id="pdfForm" onsubmit="downloadPDF(event)">
+
+            <div class="mb-6">
+                <label class="block text-sm font-medium mb-2">Select Tenant</label>
+                <select id="tenantId" class="w-full border border-gray-300 rounded-2xl px-4 py-3 text-lg" required>
+                    <option value="">-- Select Tenant --</option>
+                    <% tenants.forEach(tenant=> { %>
+                        <option value="<%= tenant.id %>">
+                            <%= tenant.name %>
+                                <%= tenant.is_active ? '' : '(Left)' %>
+                                    — <%= tenant.unit_names || 'No units' %>
+                        </option>
+                        <% }) %>
+                </select>
+            </div>
+
+            <button type="submit"
+                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-medium text-lg flex items-center justify-center gap-2">
+                📥 Download PDF Statement
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    function downloadPDF(e) {
+        e.preventDefault();
+
+        const tenantId = document.getElementById('tenantId').value;
+
+        if (!tenantId) {
+            alert("Please select a tenant");
+            return;
+        }
+
+        // Redirect to correct URL format: /tenant-pdf/123
+        window.location.href = `/tenant-pdf/${tenantId}`;
+    }
+</script>

@@ -49,9 +49,9 @@
                         <label class="block text-sm font-medium mb-1">Select Unit</label>
                         <select name="unit_id" class="w-full border border-gray-300 rounded-xl px-4 py-3" required>
                             <% if (tenant.units_list && tenant.units_list.length> 0) { %>
-                                <% tenant.units_list.forEach(unit=> { %>
+                                <% tenant.units_list.forEach(function(unit) { %>
                                     <option value="<%= unit.id %>">
-                                        <%= unit.name %>
+                                        <%= unit.unit_name %>
                                     </option>
                                     <% }) %>
                                         <% } else { %>
@@ -72,6 +72,7 @@
             <!-- Transaction History -->
             <div class="bg-white rounded-3xl p-8 shadow-sm">
                 <h3 class="text-xl font-semibold mb-4">Transaction History</h3>
+
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[700px]">
                         <thead>
@@ -93,20 +94,30 @@
             <% } %>
 </div>
 
+<!-- JavaScript for Edit & Delete -->
 <script>
     async function deleteTransaction(id) {
-        if (!confirm("Delete this transaction?")) return;
+        if (!confirm("Delete this transaction? This action cannot be undone.")) return;
+
         const res = await fetch('/delete-transaction/' + id, { method: 'POST' });
-        if (res.ok) location.reload();
+        if (res.ok) {
+            location.reload();
+        } else {
+            alert("Failed to delete transaction");
+        }
     }
 
     function editTransaction(id, currentAmount) {
         const newAmount = prompt("Enter new amount:", currentAmount);
         if (newAmount === null || newAmount === '' || isNaN(newAmount)) return;
+
         fetch('/edit-transaction/' + id, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ amount: parseFloat(newAmount) })
-        }).then(() => location.reload());
+        }).then(res => {
+            if (res.ok) location.reload();
+            else alert("Failed to update amount");
+        });
     }
 </script>

@@ -1,18 +1,29 @@
-<div class="max-w-5xl mx-auto">
+<div class="max-w-6xl mx-auto px-4 py-6">
+    <h1 class="text-3xl font-bold mb-2">Rent Collection</h1>
+    <p class="text-gray-600 mb-6">
+        <%= selectedMonth %>
+    </p>
+
+    <!-- Search Bar -->
     <div class="mb-6">
-        <h1 class="text-3xl font-bold">💰 This Month Collection</h1>
-        <p class="text-gray-600">
-            <%= selectedMonth || '' %>
-        </p>
+        <input type="text" id="tenantSearch" placeholder="Search tenant by name..." onkeyup="filterTenants()"
+            class="w-full border border-gray-300 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-emerald-500">
     </div>
 
-    <% if (error) { %>
-        <div class="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-2xl mb-6">
-            <%= error %>
-        </div>
-        <% } %>
-
-            <div class="space-y-4">
-                <%- tenantRows %>
-            </div>
+    <!-- Tenants List -->
+    <div id="tenantList">
+        <%- tenantRows %>
+    </div>
 </div>
+
+<script>
+    function filterTenants() {
+        const searchValue = document.getElementById('tenantSearch').value.toLowerCase();
+        const cards = document.querySelectorAll('.tenant-card');
+
+        cards.forEach(card => {
+            const name = card.getAttribute('data-tenant-name');
+            card.style.display = name.includes(searchValue) ? '' : 'none';
+        });
+    }
+</script>

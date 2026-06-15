@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
+const { getTenantOutstanding } = require('../../services/transactionService');
 
 router.get('/tenants', async (req, res) => {
   try {
@@ -55,15 +56,10 @@ router.get('/tenants', async (req, res) => {
 
     let totalDueAll = 0;
     for (const tenant of tenantsData.rows) {
-      const balance = await pool.query(`
-        SELECT COALESCE(SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END), 0) as outstanding
-        FROM transactions WHERE tenant_id = $1
-      `, [tenant.tenant_id]);
-      totalDueAll += Number(balance.rows[0].outstanding);
+      totalDueAll += await getTenantOutstanding(tenant.tenant_id);
     }
 
     const totalCollectedThisMonth = Number(collectedRes.rows[0].total_collected);
-    const tenantsWithDues = tenantsData.rows.length;   // All active tenants shown
 
     // Build tenant list
     let tenantList = [];
@@ -91,12 +87,7 @@ router.get('/tenants', async (req, res) => {
         `;
       });
 
-      const balance = await pool.query(`
-        SELECT COALESCE(SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END), 0) as outstanding
-        FROM transactions WHERE tenant_id = $1
-      `, [tenant.tenant_id]);
-
-      const totalOutstanding = Number(balance.rows[0].outstanding);
+      const totalOutstanding = await getTenantOutstanding(tenant.tenant_id);
 
       tenantList.push({
         tenant,
@@ -202,7 +193,7 @@ router.get('/tenants', async (req, res) => {
       tenantRows,
       totalDueAll,
       totalCollectedThisMonth,
-      tenantsWithDues: tenantsData.rows.length,   // Number of active tenants
+      tenantsWithDues: tenantsData.rows.length,
       error: null
     });
 

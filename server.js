@@ -34,7 +34,7 @@ app.use(session({
 // Authentication Middleware (Place here - early in the file)
 // ========================
 app.use((req, res, next) => {
-    const publicRoutes = ['/login', '/logout'];
+    const publicRoutes = ['/login', '/logout', '/view/'];
 
     // Allow public routes without login
     if (publicRoutes.includes(req.path)) {

@@ -46,8 +46,14 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
 
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     
+    // Dynamic filename
+    const now = new Date();
+    const month = now.toLocaleString('default', { month: 'short' });
+    const year = now.getFullYear();
+    const fileName = `${tenant.name.replace(/ /g, '_')}_Statement_${month}${year}.pdf`;
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${tenant.name.replace(/ /g, '_')}_Statement.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
     doc.pipe(res);
 
@@ -72,7 +78,7 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
 
     doc.moveDown(3);
 
-    // Transaction Table
+    // Transaction History
     doc.fontSize(14).font('Helvetica-Bold').text('TRANSACTION HISTORY');
     doc.moveDown(0.7);
 
@@ -94,10 +100,17 @@ router.get('/tenant-pdf/:tenantId', async (req, res) => {
       const isDebit = row.type === 'Bill' || row.type === 'Extra';
       const amountText = `${isDebit ? 'Dr.' : 'Cr.'} ${formatINR(amount)}`;
 
+      let balanceText = formatINR(row.running_balance);
+      const balanceNum = Number(row.running_balance);
+
+      if (balanceNum < 0) {
+        balanceText = '-' + balanceText;   // Just negative sign
+      }
+
       doc.text(row.period, 70, y, { width: 110 });
       doc.text(row.particular, 190, y, { width: 200 });
       doc.text(amountText, 400, y);
-      doc.text(formatINR(row.running_balance), 480, y);
+      doc.text(balanceText, 480, y);
 
       doc.lineWidth(0.5).moveTo(70, y + 16).lineTo(570, y + 16).stroke();
 

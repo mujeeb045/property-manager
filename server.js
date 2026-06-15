@@ -36,12 +36,12 @@ app.use(session({
 app.use((req, res, next) => {
     const publicRoutes = ['/login', '/logout', '/view/'];
 
-    // Allow public routes without login
-    if (publicRoutes.includes(req.path)) {
+    // Allow public routes
+    if (publicRoutes.some(route => req.path.startsWith(route))) {
         return next();
     }
 
-    // If user is logged in, allow access
+    // Check if user is logged in
     if (req.session && req.session.userId) {
         return next();
     }
@@ -57,8 +57,9 @@ app.use(expressLayouts);
 app.set('layout', 'layout/base');
 
 // Import Routes
-const authRouter = require('./routes/auth');
 const tenantViewRouter = require('./routes/tenant-view');
+const authRouter = require('./routes/auth');
+
 const qrRouter = require('./routes/qr');
 const dashboardRoutes = require('./routes/index');
 const unitRoutes = require('./routes/units');
@@ -74,8 +75,9 @@ const settingsRouter = require('./routes/billing/settings');
 
 
 // Mount Routes
-app.use('/', authRouter);
 app.use('/', tenantViewRouter);
+app.use('/', authRouter);
+
 app.use('/', qrRouter);
 app.use('/', dashboardRoutes);
 app.use('/', unitRoutes);

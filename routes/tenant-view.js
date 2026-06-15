@@ -9,7 +9,7 @@ router.get('/view/:phone', async (req, res) => {
 
         console.log(`[Tenant View] Request for phone: ${phone}`);
 
-        // Get all tenants with this phone number (handles move-outs and move-ins)
+        // Get tenant details (all records with same phone)
         const tenantRes = await pool.query(`
             SELECT 
                 t.id,
@@ -23,16 +23,29 @@ router.get('/view/:phone', async (req, res) => {
             LEFT JOIN units u ON tu.unit_id = u.id
             WHERE t.phone = $1
             GROUP BY t.id, t.name, t.phone, t.father_name, t.is_active
+            ORDER BY t.is_active DESC
+            LIMIT 1
         `, [phone]);
 
         if (tenantRes.rows.length === 0) {
             return res.status(404).send(`No tenant found with phone number ${phone}`);
         }
 
-        // For simplicity, we'll use the first record's basic info
         const tenant = tenantRes.rows[0];
 
-                // Get ALL transactions for this phone number
+        // Calculate current balance
+        const balanceRes = await pool.query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END), 0) as current_balance
+            FROM transactions 
+            WHERE tenant_id IN (
+                SELECT id FROM tenants WHERE phone = $1
+            )
+        `, [phone]);
+
+        tenant.current_balance = Number(balanceRes.rows[0].current_balance);
+
+        // Get transactions
         const transactions = await pool.query(`
             SELECT 
                 TO_CHAR(transaction_date, 'dd Mon YYYY') as period,
@@ -56,7 +69,6 @@ router.get('/view/:phone', async (req, res) => {
             const amount = Number(row.amount);
             const isDebit = row.type === 'Bill' || row.type === 'Extra';
             
-            // Combine particular and notes
             let displayParticular = row.particular;
             if (row.notes && row.notes.trim() !== '') {
                 displayParticular += ` (${row.notes})`;

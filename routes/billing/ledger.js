@@ -36,9 +36,10 @@ router.get('/tenants', async (req, res) => {
     const extrasData = await pool.query(`
       SELECT tenant_id, unit_id, SUM(amount) as extra_amount
       FROM transactions 
-      WHERE tran_type = 'Extra' AND particular LIKE $1
+      WHERE tran_type = 'Extra' 
+        AND transaction_date >= date_trunc('month', CURRENT_DATE)
       GROUP BY tenant_id, unit_id
-    `, [`%${selectedMonth}%`]);
+    `);
 
     const extrasMap = {};
     extrasData.rows.forEach(row => {

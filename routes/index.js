@@ -27,43 +27,54 @@ router.use('/', paymentsRouter);
 router.use('/', tenantPdfRouter);
 router.use('/', settingsRouter);
 
-// Dashboard Route
+// routes/index.js (Dashboard)
 router.get('/', async (req, res) => {
   try {
-    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const currentMonthShort = nowIST.toLocaleDateString('en-IN', { month: 'short' });
-    const currentYear = nowIST.getFullYear();
+    // Total active tenants
+    const tenantsRes = await pool.query(`
+      SELECT COUNT(*) as total_active 
+      FROM tenants WHERE is_active = TRUE
+    `);
 
-    const countsQuery = await pool.query(`
-      SELECT
+    // Total units
+    const unitsRes = await pool.query(`
+      SELECT 
         COUNT(*) as total_units,
-        COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units,
-        COUNT(CASE WHEN is_occupied = FALSE THEN 1 END) as vacant_units
+        COUNT(CASE WHEN is_occupied = TRUE THEN 1 END) as occupied_units
       FROM units
     `);
 
-    const monthArray = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    let monthOptionsHTML = '';
-    monthArray.forEach(m => {
-      monthOptionsHTML += `<option value="${m}" ${m === currentMonthShort ? 'selected' : ''}>${m}</option>`;
-    });
+    // Total due across all tenants
+    const dueRes = await pool.query(`
+      SELECT COALESCE(SUM(CASE WHEN tran_type IN ('Bill', 'Extra') THEN amount ELSE -amount END), 0) as total_due
+      FROM transactions
+    `);
 
-    res.render('dashboard/hub', {
+    // Collected this month
+    const collectedRes = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as collected
+      FROM transactions 
+      WHERE tran_type = 'Payment'
+        AND transaction_date >= date_trunc('month', CURRENT_DATE)
+    `);
+
+    const stats = {
+      totalActiveTenants: tenantsRes.rows[0].total_active,
+      totalUnits: unitsRes.rows[0].total_units,
+      occupiedUnits: unitsRes.rows[0].occupied_units,
+      totalDue: Number(dueRes.rows[0].total_due),
+      collectedThisMonth: Number(collectedRes.rows[0].collected)
+    };
+
+    res.render('dashboard', {
       title: 'Dashboard',
-      total_units: countsQuery.rows[0].total_units,
-      occupied_units: countsQuery.rows[0].occupied_units,
-      vacant_units: countsQuery.rows[0].vacant_units,
-      monthOptionsHTML,
-      currentYear,
-      error: null
+      stats,
+      currentMonth: new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })
     });
 
   } catch (err) {
-    console.error("Dashboard Error:", err);
-    res.status(500).render('dashboard/hub', {
-      title: 'Dashboard',
-      error: 'Error loading dashboard'
-    });
+    console.error("Dashboard Error:", err.message);
+    res.status(500).send("Error loading dashboard");
   }
 });
 

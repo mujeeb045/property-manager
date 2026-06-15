@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>
+        <%= title %>
+    </title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-50">
+
+    <div class="max-w-5xl mx-auto px-4 py-8">
+        <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
+            <!-- Header -->
+            <div class="flex justify-between items-start mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">
+                        <%= tenant.name %>
+                    </h1>
+                    <p class="text-gray-600 mt-1">Phone: <%= tenant.phone %>
+                    </p>
+                    <% if (tenant.all_units) { %>
+                        <p class="text-gray-600">Units: <%= tenant.all_units %>
+                        </p>
+                        <% } %>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm text-gray-500">Current Balance</p>
+                    <p
+                        class="text-3xl font-bold <%= tenant.current_balance && tenant.current_balance < 0 ? 'text-emerald-600' : 'text-red-600' %>">
+                        ₹<%= tenant.current_balance ? Math.abs(tenant.current_balance).toLocaleString('en-IN') : '0' %>
+                            <%= tenant.current_balance && tenant.current_balance < 0 ? '(Advance)' : '' %>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Transaction History -->
+            <div class="bg-gray-50 rounded-2xl p-6">
+                <h2 class="text-xl font-semibold mb-4">Transaction History</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-full">
+                        <thead>
+                            <tr class="border-b-2 border-gray-300">
+                                <th class="text-left py-4 px-4">Date</th>
+                                <th class="text-left py-4 px-4">Particular</th>
+                                <th class="text-right py-4 px-4">Amount</th>
+                                <th class="text-right py-4 px-4">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <%- rowsHTML %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-8 text-sm text-gray-500">
+            This is a read-only view shared by your property manager.
+        </div>
+    </div>
+
+</body>
+
+</html>

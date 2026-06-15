@@ -1,31 +1,70 @@
-<div class="max-w-6xl mx-auto">
-    <h1 class="text-3xl font-bold mb-2">📜 Tenant History</h1>
-    <p class="text-gray-600 mb-8">Click on any tenant to view their full transaction history</p>
+<div class="max-w-6xl mx-auto px-4 py-6">
+    <h1 class="text-3xl font-bold mb-2">Tenant History</h1>
+    <p class="text-gray-600 mb-8">Active tenants only</p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <!-- Search Bar -->
+    <div class="mb-6">
+        <input type="text" id="tenantSearch" placeholder="Search tenant by name..." onkeyup="filterTenants()"
+            class="w-full border border-gray-300 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-emerald-500">
+    </div>
+
+    <!-- Tenants List -->
+    <div id="tenantList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <% tenants.forEach(tenant=> { %>
-            <div onclick="window.location.href='/history/tenant/<%= tenant.id %>'"
-                class="bg-white rounded-2xl p-6 border border-gray-100 hover:border-emerald-400 hover:shadow-md cursor-pointer transition-all">
-
+            <div
+                class="tenant-card bg-white rounded-2xl p-6 border border-gray-100 hover:border-emerald-300 transition-all">
                 <div class="flex justify-between items-start">
                     <div>
-                        <strong class="text-lg">👤 <%= tenant.name %></strong>
+                        <h3 class="text-xl font-bold">👤 <%= tenant.name %>
+                        </h3>
                         <p class="text-gray-600 mt-1">
-                            <%= tenant.unit_names || 'No active units' %>
+                            <%= tenant.phone ? '+91 ' + tenant.phone : 'No phone' %>
                         </p>
-                    </div>
-
-                    <% if (tenant.is_active) { %>
-                        <span class="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-full">Active</span>
-                        <% } else { %>
-                            <span class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full">Left</span>
+                        <% if (tenant.unit_names) { %>
+                            <p class="text-sm text-gray-500 mt-1">Units: <%= tenant.unit_names %>
+                            </p>
                             <% } %>
+                    </div>
+                    <span class="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">Active</span>
                 </div>
 
-                <p class="text-sm text-gray-500 mt-3">
-                    <%= tenant.phone || 'No phone' %>
-                </p>
+                <div class="mt-6 flex gap-3">
+                    <a href="/history/tenant/<%= tenant.id %>"
+                        class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-center py-3 rounded-2xl font-medium text-sm">
+                        View Full History
+                    </a>
+
+                    <button onclick="copyViewLink('<%= tenant.phone %>')"
+                        class="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 py-3 rounded-2xl font-medium text-sm">
+                        📋 Get View Link
+                    </button>
+                </div>
             </div>
             <% }) %>
     </div>
 </div>
+
+<script>
+    function filterTenants() {
+        const searchValue = document.getElementById('tenantSearch').value.toLowerCase();
+        const cards = document.querySelectorAll('.tenant-card');
+
+        cards.forEach(card => {
+            const name = card.textContent.toLowerCase();
+            card.style.display = name.includes(searchValue) ? '' : 'none';
+        });
+    }
+
+    function copyViewLink(phone) {
+        if (!phone) {
+            alert("Phone number not available");
+            return;
+        }
+        const link = `http://localhost:3000/view/${phone}`;
+        navigator.clipboard.writeText(link).then(() => {
+            alert('✅ View Link copied to clipboard!\n\nShare this link with the tenant.');
+        }).catch(() => {
+            alert('Failed to copy. Link: ' + link);
+        });
+    }
+</script>

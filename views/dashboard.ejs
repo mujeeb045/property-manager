@@ -1,25 +1,64 @@
-<h1 class="text-4xl font-bold mb-8 text-gray-800">🏠 Dashboard</h1>
+<div class="max-w-6xl mx-auto px-4 py-8">
+    <h1 class="text-4xl font-bold mb-2">Dashboard</h1>
+    <p class="text-gray-600 mb-8">
+        <%= currentMonth %>
+    </p>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-    <div class="bg-white p-6 rounded-xl shadow">
-        <h3 class="text-lg font-semibold text-gray-600">Total Units</h3>
-        <p class="text-5xl font-bold text-blue-600 mt-4">12</p>
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+            <div class="text-sm text-gray-500">Total Due</div>
+            <div class="text-4xl font-bold text-red-600 mt-3">
+                ₹<%= stats.totalDue.toLocaleString('en-IN') %>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+            <div class="text-sm text-gray-500">Collected This Month</div>
+            <div class="text-4xl font-bold text-emerald-600 mt-3">
+                ₹<%= stats.collectedThisMonth.toLocaleString('en-IN') %>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+            <div class="text-sm text-gray-500">Active Tenants</div>
+            <div class="text-4xl font-bold text-blue-600 mt-3">
+                <%= stats.totalActiveTenants %>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+            <div class="text-sm text-gray-500">Occupied Units</div>
+            <div class="text-4xl font-bold text-purple-600 mt-3">
+                <%= stats.occupiedUnits %> / <%= stats.totalUnits %>
+            </div>
+        </div>
     </div>
 
-    <div class="bg-white p-6 rounded-xl shadow">
-        <h3 class="text-lg font-semibold text-gray-600">Active Tenants</h3>
-        <p class="text-5xl font-bold text-green-600 mt-4">8</p>
-    </div>
+    <!-- Quick Links -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <a href="/tenants"
+            class="bg-white hover:bg-emerald-50 border border-gray-200 hover:border-emerald-200 rounded-2xl p-6 transition-all">
+            <div class="text-2xl mb-3">💰</div>
+            <div class="font-semibold">Rent Collection</div>
+        </a>
 
-    <div class="bg-white p-6 rounded-xl shadow">
-        <h3 class="text-lg font-semibold text-gray-600">This Month Due</h3>
-        <p class="text-5xl font-bold text-orange-600 mt-4">₹1,45,000</p>
-    </div>
-</div>
+        <a href="/units"
+            class="bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-200 rounded-2xl p-6 transition-all">
+            <div class="text-2xl mb-3">🏢</div>
+            <div class="font-semibold">Units</div>
+        </a>
 
-<div class="mt-10">
-    <a href="/tenants"
-        class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-8 py-4 rounded-xl text-lg">
-        💰 Go to This Month Collection
-    </a>
+        <a href="/history/tenants"
+            class="bg-white hover:bg-amber-50 border border-gray-200 hover:border-amber-200 rounded-2xl p-6 transition-all">
+            <div class="text-2xl mb-3">📜</div>
+            <div class="font-semibold">Tenant History</div>
+        </a>
+
+        <a href="/settings"
+            class="bg-white hover:bg-purple-50 border border-gray-200 hover:border-purple-200 rounded-2xl p-6 transition-all">
+            <div class="text-2xl mb-3">⚙️</div>
+            <div class="font-semibold">Settings</div>
+        </a>
+    </div>
 </div>

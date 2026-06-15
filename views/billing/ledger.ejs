@@ -4,6 +4,30 @@
         <%= selectedMonth %>
     </p>
 
+    <!-- Quick Stats Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500">Total Due</div>
+            <div class="text-2xl font-bold text-red-600 mt-1">
+                ₹<%= totalDueAll ? totalDueAll.toLocaleString('en-IN') : '0' %>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500">Collected This Month</div>
+            <div class="text-2xl font-bold text-emerald-600 mt-1">
+                ₹<%= totalCollectedThisMonth ? totalCollectedThisMonth.toLocaleString('en-IN') : '0' %>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500">Active Tenants</div>
+            <div class="text-2xl font-bold text-amber-600 mt-1">
+                <%= tenantsWithDues || 0 %>
+            </div>
+        </div>
+    </div>
+
     <!-- Search Bar -->
     <div class="mb-6">
         <input type="text" id="tenantSearch" placeholder="Search tenant by name..." onkeyup="filterTenants()"
@@ -11,7 +35,7 @@
     </div>
 
     <!-- Tenants List -->
-    <div id="tenantList">
+    <div id="tenantList" class="space-y-4">
         <%- tenantRows %>
     </div>
 </div>

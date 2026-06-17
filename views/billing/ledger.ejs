@@ -1,53 +1,41 @@
 <div class="max-w-6xl mx-auto px-4 py-6">
     <h1 class="text-3xl font-bold mb-2">Rent Collection</h1>
-    <p class="text-gray-600 mb-6">
-        <%= selectedMonth %>
-    </p>
+    <p class="text-gray-600 mb-6"><%= selectedMonth %></p>
+
+    <% if (error) { %>
+        <div class="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-xl mb-6">
+            <%= error %>
+        </div>
+    <% } %>
 
     <!-- Quick Stats Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500">Total Due</div>
-            <div class="text-2xl font-bold text-red-600 mt-1">
-                ₹<%= totalDueAll ? totalDueAll.toLocaleString('en-IN') : '0' %>
-            </div>
-        </div>
-
-        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500">Collected This Month</div>
-            <div class="text-2xl font-bold text-emerald-600 mt-1">
-                ₹<%= totalCollectedThisMonth ? totalCollectedThisMonth.toLocaleString('en-IN') : '0' %>
-            </div>
-        </div>
-
-        <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500">Active Tenants</div>
-            <div class="text-2xl font-bold text-amber-600 mt-1">
-                <%= tenantsWithDues || 0 %>
-            </div>
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div class="bg-white rounded-2xl p-6 shadow-sm">
+        <div class="text-sm text-gray-500">Total Due</div>
+        <div class="text-3xl font-bold text-red-600 mt-2">₹<%= (totalDueAll || 0).toLocaleString('en-IN') %></div>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm">
+        <div class="text-sm text-gray-500">Collected This Month</div>
+        <div class="text-3xl font-bold text-emerald-600 mt-2">₹<%= (totalCollectedThisMonth || 0).toLocaleString('en-IN') %></div>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm">
+        <div class="text-sm text-gray-500">Active Tenants</div>
+        <div class="text-3xl font-bold text-blue-600 mt-2"><%= activeTenants || 0 %></div>
+      </div>
     </div>
 
-    <!-- Search Bar -->
-    <div class="mb-6">
-        <input type="text" id="tenantSearch" placeholder="Search tenant by name..." onkeyup="filterTenants()"
-            class="w-full border border-gray-300 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-emerald-500">
-    </div>
-
-    <!-- Tenants List -->
-    <div id="tenantList" class="space-y-4">
+    <div id="tenantList">
         <%- tenantRows %>
     </div>
 </div>
 
 <script>
-    function filterTenants() {
-        const searchValue = document.getElementById('tenantSearch').value.toLowerCase();
-        const cards = document.querySelectorAll('.tenant-card');
-
-        cards.forEach(card => {
-            const name = card.getAttribute('data-tenant-name');
-            card.style.display = name.includes(searchValue) ? '' : 'none';
-        });
+function filterTenants() {
+    const filter = document.getElementById("tenantSearch").value.toLowerCase();
+    const cards = document.getElementsByClassName("tenant-card");
+    for (let i = 0; i < cards.length; i++) {
+        const name = cards[i].getAttribute("data-tenant-name") || "";
+        cards[i].style.display = name.includes(filter) ? "" : "none";
     }
+}
 </script>
